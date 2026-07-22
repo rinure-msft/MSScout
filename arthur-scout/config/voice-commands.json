@@ -1,0 +1,474 @@
+﻿[
+    {
+        "name":  "stop listening",
+        "description":  "Stop the bridge.",
+        "aliases":  [
+                        "stop",
+                        "quit",
+                        "exit",
+                        "go to sleep",
+                        "stop listening"
+                    ]
+    },
+    {
+        "name":  "good night",
+        "description":  "Say good night and stop the bridge.",
+        "aliases":  [
+                        "good night",
+                        "goodnight"
+                    ]
+    },
+    {
+        "name":  "help",
+        "description":  "List available commands.",
+        "aliases":  [
+                        "help",
+                        "what can you do"
+                    ]
+    },
+    {
+        "name":  "Voice Command Index",
+        "description":  "Send Arthur\u0027s indexed voice command list to the Microsoft Scout Teams chat.",
+        "aliases":  [
+                        "list voice commands",
+                        "list your voice commands",
+                        "show voice commands",
+                        "show your voice commands",
+                        "what are your voice commands",
+                        "send voice command index",
+                        "send voice commands",
+                        "voice command index"
+                    ]
+    },
+    {
+        "name":  "prompt window",
+        "description":  "Queue a spoken prompt for this Scout window.",
+        "aliases":  [
+                        "ask copilot *",
+                        "ask copilot to *",
+                        "ask this window *",
+                        "prompt copilot *",
+                        "prompt copilot to *",
+                        "send to copilot *",
+                        "send to copilot to *",
+                        "send to this window *",
+                        "tell copilot *",
+                        "tell copilot to *",
+                        "have copilot *",
+                        "have copilot do *",
+                        "use copilot to *",
+                        "execute prompt *",
+                        "execute prompt to *"
+                    ]
+    },
+    {
+        "name":  "FAST MBR review",
+        "description":  "Draft a Fraud Ops review email from the FAST Cross Company Partnership MBR document.",
+        "aliases":  [
+                        "fast mbr review",
+                        "review fast mbr",
+                        "review fast partnership mbr",
+                        "review fast cross company partnership mbr",
+                        "review fast cross company partnership mbr document",
+                        "fast cross company partnership mbr",
+                        "fast cross company partnership mbr document",
+                        "fast partnership review"
+                    ]
+    },
+    {
+        "name":  "Coreidentity entitlement approvals",
+        "description":  "Approve eligible Coreidentity entitlements and email an approval report.",
+        "aliases":  [
+                        "coreidentity entitlement approvals",
+                        "approve coreidentity entitlements",
+                        "review coreidentity entitlements",
+                        "core identity entitlement approvals",
+                        "approve core identity entitlements",
+                        "review core identity entitlements",
+                        "pending access approvals",
+                        "review pending access approvals",
+                        "approve pending access approvals"
+                    ]
+    },
+    {
+        "name":  "Review All Entitlements",
+        "description":  "Review all entitlement approval portals, approve eligible requests, and email a report.",
+        "aliases":  [
+                        "review all entitlements",
+                        "approve all entitlements",
+                        "review all entitlement approvals",
+                        "approve all entitlement approvals",
+                        "review entitlement portals",
+                        "approve entitlement portals",
+                        "review all access approvals",
+                        "approve all access approvals"
+                    ]
+    },
+    {
+        "name":  "evening inbox brief",
+        "description":  "Create an executive evening inbox brief from priority folders.",
+        "aliases":  [
+                        "evening inbox brief",
+                        "inbox brief",
+                        "evening email brief",
+                        "create evening inbox brief",
+                        "summarize my inbox",
+                        "summarize my evening inbox",
+                        "what did i accomplish today",
+                        "tomorrow priorities"
+                    ]
+    },
+    {
+        "name":  "how are you",
+        "description":  "Respond conversationally.",
+        "aliases":  [
+                        "how are you",
+                        "how\u0027s it going",
+                        "how is it going"
+                    ]
+    },
+    {
+        "name":  "hello",
+        "description":  "Greet Rin.",
+        "aliases":  [
+                        "hello",
+                        "hi",
+                        "hey",
+                        "good morning",
+                        "good afternoon",
+                        "good evening"
+                    ]
+    },
+    {
+        "name":  "thanks",
+        "description":  "Acknowledge thanks.",
+        "aliases":  [
+                        "thank you",
+                        "thanks"
+                    ]
+    },
+    {
+        "name":  "open calculator",
+        "description":  "Open Calculator.",
+        "aliases":  [
+                        "calculator",
+                        "calc",
+                        "open calculator"
+                    ]
+    },
+    {
+        "name":  "open command prompt",
+        "description":  "Open Command Prompt.",
+        "aliases":  [
+                        "command prompt",
+                        "cmd",
+                        "open command prompt"
+                    ]
+    },
+    {
+        "name":  "open powershell",
+        "description":  "Open PowerShell.",
+        "aliases":  [
+                        "powershell",
+                        "open powershell"
+                    ]
+    },
+    {
+        "name":  "open notepad",
+        "description":  "Open Notepad.",
+        "aliases":  [
+                        "notepad",
+                        "note pad",
+                        "open notepad",
+                        "open note pad"
+                    ]
+    },
+    {
+        "name":  "close browser",
+        "description":  "Close the browser Arthur opened.",
+        "aliases":  [
+                        "close browser",
+                        "close edge",
+                        "close the browser",
+                        "close the browser you opened"
+                    ]
+    },
+    {
+        "name":  "open browser",
+        "description":  "Open browser.",
+        "aliases":  [
+                        "browser",
+                        "edge",
+                        "open browser",
+                        "open edge"
+                    ]
+    },
+    {
+        "name":  "open Copilot",
+        "description":  "Open Copilot.",
+        "aliases":  [
+                        "open copilot",
+                        "copilot"
+                    ]
+    },
+    {
+        "name":  "search web",
+        "description":  "Search the web.",
+        "aliases":  [
+                        "search for *",
+                        "search the web for *",
+                        "look up *",
+                        "bing *"
+                    ]
+    },
+    {
+        "name":  "open scratchpad",
+        "description":  "Open Scratchpad.",
+        "aliases":  [
+                        "open scratchpad"
+                    ]
+    },
+    {
+        "name":  "open documents",
+        "description":  "Open Documents.",
+        "aliases":  [
+                        "open documents"
+                    ]
+    },
+    {
+        "name":  "open downloads",
+        "description":  "Open Downloads.",
+        "aliases":  [
+                        "open downloads"
+                    ]
+    },
+    {
+        "name":  "take note",
+        "description":  "Append a note.",
+        "aliases":  [
+                        "take a note *",
+                        "make a note *",
+                        "remember this *",
+                        "note this *"
+                    ]
+    },
+    {
+        "name":  "read notes",
+        "description":  "Read recent notes.",
+        "aliases":  [
+                        "read notes",
+                        "read my notes"
+                    ]
+    },
+    {
+        "name":  "time",
+        "description":  "Tell current time.",
+        "aliases":  [
+                        "time",
+                        "what time is it"
+                    ]
+    },
+    {
+        "name":  "date",
+        "description":  "Tell current date.",
+        "aliases":  [
+                        "date",
+                        "today",
+                        "what day is it"
+                    ]
+    },
+    {
+        "name":  "list microphones",
+        "description":  "List input devices.",
+        "aliases":  [
+                        "list microphone",
+                        "list microphones",
+                        "audio devices"
+                    ]
+    },
+    {
+        "name":  "status",
+        "description":  "Report bridge status.",
+        "aliases":  [
+                        "status",
+                        "are you listening"
+                    ]
+    },
+    {
+        "name":  "repeat heard",
+        "description":  "Repeat last heard command.",
+        "aliases":  [
+                        "repeat",
+                        "what did you hear"
+                    ]
+    },
+    {
+        "name":  "repeat response",
+        "description":  "Repeat last response.",
+        "aliases":  [
+                        "say that again",
+                        "repeat your response"
+                    ]
+    },
+    {
+        "name":  "identity",
+        "description":  "Say identity.",
+        "aliases":  [
+                        "who are you",
+                        "what is your name"
+                    ]
+    },
+    {
+        "name":  "unread Teams",
+        "description":  "Summarize unread Teams.",
+        "aliases":  [
+                        "read unread teams",
+                        "unread teams message",
+                        "unread teams messages",
+                        "summarize unread teams"
+                    ]
+    },
+    {
+        "name":  "recent email",
+        "description":  "Summarize recent email.",
+        "aliases":  [
+                        "recent email",
+                        "unread email",
+                        "latest email",
+                        "summarize unread email",
+                        "email summary"
+                    ]
+    },
+    {
+        "name":  "missed meeting summary",
+        "description":  "Email summaries and actions from missed recorded/transcribed meetings.",
+        "aliases":  [
+                        "missed meeting summary",
+                        "summarize missed meetings",
+                        "review missed meetings",
+                        "missed recorded meetings",
+                        "summarize meetings i missed",
+                        "review meetings i missed",
+                        "meeting summaries i missed",
+                        "catch me up on missed meetings"
+                    ]
+    },
+    {
+        "name":  "meeting summary recap",
+        "description":  "Email summaries and actions from attended recorded/transcribed meetings.",
+        "aliases":  [
+                        "meeting summary recap",
+                        "meetings attended summary",
+                        "attended meeting summary",
+                        "summarize meetings i attended",
+                        "review meetings i attended",
+                        "summarize attended meetings",
+                        "review attended meetings",
+                        "recap meetings i attended",
+                        "meeting recap"
+                    ]
+    },
+    {
+        "name":  "meeting prep",
+        "description":  "Prepare for the next meeting.",
+        "aliases":  [
+                        "meeting prep",
+                        "prep my next meeting",
+                        "prepare me for my next meeting"
+                    ]
+    },
+    {
+        "name":  "next meeting",
+        "description":  "Read next meeting.",
+        "aliases":  [
+                        "next meeting",
+                        "what is my next meeting"
+                    ]
+    },
+    {
+        "name":  "calendar summary",
+        "description":  "Summarize today\u0027s calendar.",
+        "aliases":  [
+                        "calendar summary",
+                        "today\u0027s calendar",
+                        "my calendar",
+                        "summarize my calendar"
+                    ]
+    },
+    {
+        "name":  "update Action Tracker with new items",
+        "description":  "Add new action items to Arthur\u0027s Action Tracker.",
+        "aliases":  [
+                        "update action tracker with new items",
+                        "add new items to action tracker",
+                        "update my action tracker",
+                        "refresh action tracker",
+                        "add action tracker items",
+                        "new action items"
+                    ]
+    },
+    {
+        "name":  "update completed Action Tracker items",
+        "description":  "Mark completed items in Arthur\u0027s Action Tracker.",
+        "aliases":  [
+                        "update completed action tracker items",
+                        "mark action tracker items complete",
+                        "mark action items complete",
+                        "complete action tracker items",
+                        "clear completed action items"
+                    ]
+    },
+    {
+        "name":  "review completed Action Tracker tasks",
+        "description":  "Review completed tasks in Arthur\u0027s Action Tracker.",
+        "aliases":  [
+                        "review completed action tracker tasks",
+                        "review completed action items",
+                        "show completed action tracker items",
+                        "show completed action items",
+                        "what did i complete"
+                    ]
+    },
+    {
+        "name":  "Arthur\u0027s Action Tracker",
+        "description":  "Create Arthur\u0027s Action Tracker from top action items.",
+        "aliases":  [
+                        "what needs my attention",
+                        "action tracker",
+                        "create action tracker",
+                        "build action tracker",
+                        "prioritize my work"
+                    ]
+    },
+    {
+        "name":  "daily briefing task list",
+        "description":  "Create and email an Excel task list from the Daily Briefing.",
+        "aliases":  [
+                        "daily briefing task list",
+                        "create daily briefing task list",
+                        "daily briefing action list",
+                        "create daily briefing action list",
+                        "briefing task list",
+                        "create briefing task list",
+                        "turn daily briefing into tasks"
+                    ]
+    },
+    {
+        "name":  "daily briefing",
+        "description":  "Summarize workday priorities.",
+        "aliases":  [
+                        "daily briefing",
+                        "work briefing",
+                        "brief me"
+                    ]
+    },
+    {
+        "name":  "daily tasks",
+        "description":  "Create a check-off task table from the daily briefing.",
+        "aliases":  [
+                        "summarize daily tasks",
+                        "daily task table",
+                        "create daily task table"
+                    ]
+    }
+]

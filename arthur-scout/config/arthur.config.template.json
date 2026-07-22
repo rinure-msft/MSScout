@@ -1,0 +1,39 @@
+﻿{
+  "assistantName": "Arthur",
+  "userDisplayName": "<YOUR_NAME>",
+  "timezone": "Mountain Standard Time",
+  "voice": {
+    "tts": "edge",
+    "edgeVoice": "en-US-BrianNeural"
+  },
+  "microphone": {
+    "deviceIndex": 1,
+    "threshold": 350,
+    "minTranscribeRms": 120,
+    "minTranscribePeak": 700
+  },
+  "notification": {
+    "selfEmail": "<YOUR_EMAIL>",
+    "teamsSelfMessage": true
+  },
+  "azureDevOps": {
+    "organization": "<ADO_ORGANIZATION>",
+    "project": "<ADO_PROJECT>",
+    "tag": "ArthurActionTracker",
+    "defaultAssignee": "<YOUR_NAME>",
+    "defaultAssigneeEmail": "<YOUR_EMAIL>"
+  },
+  "runtime": {
+    "scratchpadPath": "<MS_SCOUT_SCRATCHPAD_PATH>",
+    "cleanupChatArtifactsOlderThanHours": 4,
+    "chatCleanupIntervalMinutes": 45,
+    "logRetentionDays": 7
+  },
+  "enabledCommands": [
+    "help",
+    "voice_command_index",
+    "prompt_window",
+    "daily_briefing",
+    "action_tracker"
+  ]
+}

@@ -1,0 +1,20 @@
+﻿[
+  {
+    "name": "Arthur Copilot prompt responder",
+    "description": "Processes Arthur voice prompts in this Scout window, writes responses to Arthur's response queue, and marks prompts completed.",
+    "enabled": true,
+    "triggerType": "schedule",
+    "schedule": {
+      "kind": "interval",
+      "naturalLanguage": "every 1 minute",
+      "intervalMinutes": 1
+    },
+    "steps": [
+      {
+        "id": "1",
+        "label": "Main",
+        "prompt": "Check <SCRATCHPAD_PATH>\\arthur_prompt_queue.jsonl for the oldest runnable pending entry. Claim it, refresh heartbeat metadata while running, execute the prompt using normal Scout safety/privacy rules, append a response to arthur_prompt_responses.jsonl, and mark the queue entry completed, failed, or blocked. Do not leave claimed/running entries stale. Close Playwright after browser automation."
+      }
+    ]
+  }
+]

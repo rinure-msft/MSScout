@@ -1,0 +1,19 @@
+﻿# Arthur runtime and private artifacts
+*.log
+*.wav
+*.mp3
+*.jsonl
+*heartbeat*.json
+*state*.json
+arthur_archive/
+arthur_edge_profile/
+__pycache__/
+*.pyc
+
+# Local config generated from template
+arthur.config.json
+
+# Office/export artifacts and scratch data
+*.xlsx
+*extracted*.txt
+workiq-upload-test.txt
