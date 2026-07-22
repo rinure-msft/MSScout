@@ -3,21 +3,23 @@
 Open MS Scout to a new chat prompt.
 
 On your MS Scout prompt, run the following commands:
-	- git clone https://github.com/rinure-msft/MSScout.git
-	- %USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\MSScout\arthur-scout\install.ps1
+
+	git clone https://github.com/rinure-msft/MSScout.git
+	%USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\MSScout\arthur-scout\install.ps1
 
 Then edit the generated local config:
+
 	%USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad\arthur.config.json
 
 Update placeholders:
 
-	ΓÇó user name
-	ΓÇó email address
-	ΓÇó microphone index
-	ΓÇó timezone
-	ΓÇó voice
-	ΓÇó Azure DevOps org/project
-	ΓÇó enabled commands
+	- user name
+	- email address
+	- microphone index
+	- timezone
+	- voice
+	- Azure DevOps org/project
+	- enabled commands
 
 Then start Arthur:
 
