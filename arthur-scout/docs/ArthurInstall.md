@@ -1,9 +1,9 @@
 To install Arthur into another MS Scout instance:
 
 POWERSHELL
-	git clone https://github.com/rinure-msft/MSScout.git
-	cd MSScout\arthur-scout
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+	`git clone https://github.com/rinure-msft/MSScout.git`
+	`cd MSScout\arthur-scout`
+	`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`
 
 Then edit the generated local config:
 	%USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad\arthur.config.json
