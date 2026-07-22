@@ -7,13 +7,15 @@ import subprocess
 import sys
 import time
 
+from arthur_config import get_config, get_path
 
-SCRATCH = pathlib.Path(r"C:\Users\riur\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad")
+
+SCRATCH = get_path("runtime.scratchpadPath", str(pathlib.Path(__file__).resolve().parent))
 BRIDGE_SCRIPT = SCRATCH / "arthur_voice_bridge.py"
 CLEANUP_SCRIPT = SCRATCH / "arthur_cleanup_recordings.py"
 CHAT_CLEANUP_SCRIPT = SCRATCH / "arthur_cleanup_chats.py"
 WATCHDOG_SCRIPT = SCRATCH / "arthur_queue_watchdog.py"
-AUTOMATION_FILE = pathlib.Path(r"C:\Users\riur\.copilot\m-automations\automations.json")
+AUTOMATION_FILE = get_path("runtime.automationFile", str(pathlib.Path.home() / ".copilot" / "m-automations" / "automations.json"))
 SUPERVISOR_LOG = SCRATCH / "arthur_supervisor.log"
 HEARTBEAT_FILE = SCRATCH / "arthur_voice_bridge_heartbeat.json"
 BROWSER_STATE_FILE = SCRATCH / "arthur_browser_state.json"
@@ -267,11 +269,11 @@ def run_chat_cleanup() -> None:
             sys.executable,
             str(CHAT_CLEANUP_SCRIPT),
             "--max-age-hours",
-            "4",
+            str(get_config("runtime.cleanupChatArtifactsOlderThanHours", 4)),
             "--keep-latest-responses",
             "50",
             "--log-retention-days",
-            "7",
+            str(get_config("runtime.logRetentionDays", 7)),
         ],
         capture_output=True,
         text=True,
@@ -283,9 +285,9 @@ def run_chat_cleanup() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Arthur local runtime supervisor.")
-    parser.add_argument("--mic-device", type=int, default=int(os.environ.get("ARTHUR_MIC_DEVICE", "1")))
-    parser.add_argument("--tts", choices=("edge", "windows"), default=os.environ.get("ARTHUR_TTS", "edge"))
-    parser.add_argument("--threshold", type=int, default=int(os.environ["ARTHUR_THRESHOLD"]) if os.environ.get("ARTHUR_THRESHOLD") else None)
+    parser.add_argument("--mic-device", type=int, default=int(os.environ.get("ARTHUR_MIC_DEVICE", str(get_config("microphone.deviceIndex", 1)))))
+    parser.add_argument("--tts", choices=("edge", "windows"), default=os.environ.get("ARTHUR_TTS", str(get_config("voice.tts", "edge"))))
+    parser.add_argument("--threshold", type=int, default=int(os.environ["ARTHUR_THRESHOLD"]) if os.environ.get("ARTHUR_THRESHOLD") else int(get_config("microphone.threshold", 350)))
     parser.add_argument("--interval-seconds", type=int, default=30)
     parser.add_argument("--stale-heartbeat-seconds", type=int, default=180)
     parser.add_argument("--stale-prompt-seconds", type=int, default=300)
@@ -309,7 +311,7 @@ def main() -> int:
         if time.monotonic() - last_cleanup > 20 * 60:
             run_cleanup()
             last_cleanup = time.monotonic()
-        if time.monotonic() - last_chat_cleanup > 45 * 60:
+        if time.monotonic() - last_chat_cleanup > float(get_config("runtime.chatCleanupIntervalMinutes", 45)) * 60:
             run_chat_cleanup()
             last_chat_cleanup = time.monotonic()
         if args.once:

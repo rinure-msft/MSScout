@@ -23,8 +23,10 @@ import sounddevice as sd
 from faster_whisper import WhisperModel
 from scipy.io import wavfile
 
+from arthur_config import CONFIG, apply_text_config, get_config, get_path, self_email, user_first_name, user_display_name
 
-SCRATCH = pathlib.Path(r"C:\Users\riur\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad")
+
+SCRATCH = get_path("runtime.scratchpadPath", str(pathlib.Path(__file__).resolve().parent))
 TRANSCRIPT_LOG = SCRATCH / "arthur_voice_bridge_transcript.log"
 COMMAND_LOG = SCRATCH / "arthur_voice_bridge_commands.log"
 NOTES_FILE = SCRATCH / "arthur_voice_notes.txt"
@@ -37,22 +39,16 @@ SHUTDOWN_REQUEST_FILE = SCRATCH / "arthur_shutdown_request.json"
 BROWSER_STATE_FILE = SCRATCH / "arthur_browser_state.json"
 BROWSER_PROFILE_DIR = SCRATCH / "arthur_edge_profile"
 HEARTBEAT_FILE = SCRATCH / "arthur_voice_bridge_heartbeat.json"
-WORKIQ = pathlib.Path(r"C:\Users\riur\.copilot\bin\workiq.cmd")
-EDGE_VOICE = "en-US-BrianNeural"
-DEFAULT_TIMEZONE = "Mountain Standard Time"
+WORKIQ = get_path("runtime.workiqPath", str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd"))
+EDGE_VOICE = str(get_config("voice.edgeVoice", "en-US-BrianNeural"))
+DEFAULT_TIMEZONE = str(get_config("timezone", "Mountain Standard Time"))
 MAX_SPEECH_CHUNK_CHARS = 420
-MIN_TRANSCRIBE_RMS = 120.0
-MIN_TRANSCRIBE_PEAK = 700
+MIN_TRANSCRIBE_RMS = float(get_config("microphone.minTranscribeRms", 120.0))
+MIN_TRANSCRIBE_PEAK = int(get_config("microphone.minTranscribePeak", 700))
 WINDOWS_TIMEZONE_ALIASES = {
     "Mountain Standard Time": "America/Denver",
 }
-EMAIL_FOLDERS = (
-    "Tier 1 (Leadership)",
-    "Tier 2 (Stakeholders)",
-    "Tier 3 (Partners)",
-    "My To Action",
-    "My Informed (CC)",
-)
+EMAIL_FOLDERS = tuple(str(folder) for folder in get_config("emailFolders", []))
 LAST_HEARD = ""
 LAST_RESPONSE = ""
 PENDING_WAKE_UNTIL = 0.0
@@ -369,6 +365,7 @@ def write_daily_tasks_table(content: str) -> None:
 
 
 def expand_prompt(prompt: str) -> str:
+    prompt = apply_text_config(prompt)
     lowered = prompt.lower()
     is_tracker_refresh = (
         ("workstream tracker" in lowered or "work stream tracker" in lowered or "task tracker" in lowered)
@@ -393,6 +390,7 @@ def expand_prompt(prompt: str) -> str:
 
 def enqueue_prompt(prompt: str) -> None:
     prompt_id = f"prompt-{dt.datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+    prompt = apply_text_config(prompt)
     expanded_prompt = expand_prompt(prompt)
     entry = {
         "id": prompt_id,
@@ -618,7 +616,7 @@ def h_stop(text: str, speaker: Speaker, command: Command) -> bool:
 
 def h_good_night(text: str, speaker: Speaker, command: Command) -> bool:
     request_service_shutdown("good night voice command")
-    speak(speaker, "Good night Rin.")
+    speak(speaker, f"Good night {user_first_name()}.")
     return False
 
 
@@ -644,12 +642,12 @@ def h_voice_command_index(text: str, speaker: Speaker, command: Command) -> bool
 
 
 def h_how_are_you(text: str, speaker: Speaker, command: Command) -> bool:
-    speak(speaker, "I am doing well, Rin. I can hear you and I am ready for instructions.")
+    speak(speaker, f"I am doing well, {user_first_name()}. I can hear you and I am ready for instructions.")
     return True
 
 
 def h_hello(text: str, speaker: Speaker, command: Command) -> bool:
-    speak(speaker, "Hello Rin. I am listening.")
+    speak(speaker, f"Hello {user_first_name()}. I am listening.")
     return True
 
 
@@ -1302,7 +1300,7 @@ COMMANDS = [
         "Create an executive evening inbox brief from priority folders.",
     ),
     Command("how are you", ("how are you", "how's it going", "how is it going"), "how_are_you", "Respond conversationally."),
-    Command("hello", ("hello", "hi", "hey", "good morning", "good afternoon", "good evening"), "hello", "Greet Rin."),
+    Command("hello", ("hello", "hi", "hey", "good morning", "good afternoon", "good evening"), "hello", f"Greet {user_first_name()}."),
     Command("thanks", ("thank you", "thanks"), "thanks", "Acknowledge thanks."),
     Command("open calculator", ("calculator", "calc", "open calculator"), "open_calculator", "Open Calculator."),
     Command("open command prompt", ("command prompt", "cmd", "open command prompt"), "open_cmd", "Open Command Prompt."),
@@ -1462,18 +1460,18 @@ def main() -> int:
     global LAST_HEARD, PENDING_WAKE_UNTIL, CONFIGURED_MICROPHONE_DEVICE
 
     parser = argparse.ArgumentParser(description="Arthur local real-time voice bridge.")
-    parser.add_argument("--device", type=int, default=int(os.environ.get("ARTHUR_MIC_DEVICE", "2")))
+    parser.add_argument("--device", type=int, default=int(os.environ.get("ARTHUR_MIC_DEVICE", str(get_config("microphone.deviceIndex", 1)))))
     parser.add_argument("--wake-word", default="Arthur")
     parser.add_argument("--samplerate", type=int, default=16000)
     parser.add_argument("--model", default="tiny.en")
-    parser.add_argument("--tts", choices=("edge", "windows"), default=os.environ.get("ARTHUR_TTS", "edge"))
+    parser.add_argument("--tts", choices=("edge", "windows"), default=os.environ.get("ARTHUR_TTS", str(get_config("voice.tts", "edge"))))
     parser.add_argument("--edge-voice", default=os.environ.get("ARTHUR_EDGE_VOICE", EDGE_VOICE))
-    parser.add_argument("--threshold", type=float, default=None)
+    parser.add_argument("--threshold", type=float, default=float(os.environ["ARTHUR_THRESHOLD"]) if os.environ.get("ARTHUR_THRESHOLD") else float(get_config("microphone.threshold", 350)))
     parser.add_argument("--calibrate-seconds", type=float, default=1.5)
     parser.add_argument("--max-utterance-seconds", type=float, default=8.0)
     parser.add_argument("--silence-seconds", type=float, default=0.8)
     parser.add_argument("--response-poll-seconds", type=float, default=2.0)
-    parser.add_argument("--welcome-name", default=os.environ.get("ARTHUR_WELCOME_NAME", "Rin"))
+    parser.add_argument("--welcome-name", default=os.environ.get("ARTHUR_WELCOME_NAME", user_first_name()))
     parser.add_argument("--timezone", default=os.environ.get("ARTHUR_TIMEZONE", DEFAULT_TIMEZONE))
     parser.add_argument("--once", action="store_true", help="Handle one recognized wake-word command, then exit.")
     args = parser.parse_args()

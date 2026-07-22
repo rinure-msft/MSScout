@@ -1,17 +1,28 @@
 $ErrorActionPreference = 'Stop'
 
-$Scratch = 'C:\Users\riur\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad'
+$Scratch = $PSScriptRoot
+$ConfigFile = Join-Path $Scratch 'arthur.config.json'
+if (Test-Path -LiteralPath $ConfigFile) {
+    $ArthurConfig = Get-Content -LiteralPath $ConfigFile -Raw | ConvertFrom-Json
+} else {
+    $ArthurConfig = $null
+}
+if ($ArthurConfig -and $ArthurConfig.runtime -and $ArthurConfig.runtime.scratchpadPath) {
+    $Scratch = [string] $ArthurConfig.runtime.scratchpadPath
+}
 $BridgeScript = Join-Path $Scratch 'arthur_voice_bridge.py'
 $SupervisorScript = Join-Path $Scratch 'arthur_supervisor.py'
-$AutomationFile = 'C:\Users\riur\.copilot\m-automations\automations.json'
+$AutomationFile = if ($ArthurConfig -and $ArthurConfig.runtime -and $ArthurConfig.runtime.automationFile) { [string] $ArthurConfig.runtime.automationFile } else { Join-Path $env:USERPROFILE '.copilot\m-automations\automations.json' }
 $StdoutLog = Join-Path $Scratch 'arthur_voice_bridge_stdout.log'
 $StderrLog = Join-Path $Scratch 'arthur_voice_bridge_stderr.log'
 $SupervisorStdoutLog = Join-Path $Scratch 'arthur_supervisor_stdout.log'
 $SupervisorStderrLog = Join-Path $Scratch 'arthur_supervisor_stderr.log'
 $PromptQueueFile = Join-Path $Scratch 'arthur_prompt_queue.jsonl'
 $PromptResponsesFile = Join-Path $Scratch 'arthur_prompt_responses.jsonl'
-$ArthurMicDevice = 1
-$ArthurThreshold = 350
+$ArthurMicDevice = if ($ArthurConfig -and $ArthurConfig.microphone -and $null -ne $ArthurConfig.microphone.deviceIndex) { [int] $ArthurConfig.microphone.deviceIndex } else { 1 }
+$ArthurThreshold = if ($ArthurConfig -and $ArthurConfig.microphone -and $null -ne $ArthurConfig.microphone.threshold) { [int] $ArthurConfig.microphone.threshold } else { 350 }
+$ArthurTts = if ($ArthurConfig -and $ArthurConfig.voice -and $ArthurConfig.voice.tts) { [string] $ArthurConfig.voice.tts } else { 'edge' }
+$ArthurTimezone = if ($ArthurConfig -and $ArthurConfig.timezone) { [string] $ArthurConfig.timezone } else { 'Mountain Standard Time' }
 
 $EnabledArthurAutomationNames = @(
     'Arthur Copilot prompt responder'
@@ -83,6 +94,9 @@ function Start-ArthurSupervisor {
     }
 
     $argumentList = '"' + $SupervisorScript + '" --mic-device ' + $ArthurMicDevice + ' --threshold ' + $ArthurThreshold
+    $env:ARTHUR_CONFIG = $ConfigFile
+    $env:ARTHUR_TTS = $ArthurTts
+    $env:ARTHUR_TIMEZONE = $ArthurTimezone
     $process = Start-Process -FilePath 'python' `
         -ArgumentList $argumentList `
         -WorkingDirectory $Scratch `

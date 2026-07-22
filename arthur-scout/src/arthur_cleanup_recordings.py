@@ -5,8 +5,10 @@ import pathlib
 import re
 import shutil
 
+from arthur_config import get_path, user_first_name
 
-SCRATCH = pathlib.Path(r"C:\Users\riur\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad")
+
+SCRATCH = get_path("runtime.scratchpadPath", str(pathlib.Path(__file__).resolve().parent))
 HISTORY_CSV = SCRATCH / "arthur_voice_command_history.csv"
 HISTORY_MD = SCRATCH / "arthur_voice_command_history.md"
 CLEANUP_LOG = SCRATCH / "arthur_recording_cleanup.log"
@@ -53,7 +55,7 @@ def log(message: str) -> None:
 def classify(message: str) -> tuple[str, str] | None:
     prefixes = {
         "Heard: ": "Transcript",
-        "Rin said: ": "Transcript",
+        f"{user_first_name()} said: ": "Transcript",
         "Command: ": "Command",
         "Using pending wake word for: ": "Pending wake command",
         "Unrouted instruction for Copilot: ": "Unrouted command",

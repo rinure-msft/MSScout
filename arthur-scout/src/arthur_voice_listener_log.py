@@ -1,13 +1,14 @@
-﻿import os, time, pathlib
+import os, time
 import numpy as np
 import sounddevice as sd
 from scipy.io import wavfile
 from faster_whisper import WhisperModel
+from arthur_config import get_config, get_path, user_first_name
 
-mic = int(os.environ.get('ARTHUR_MIC_DEVICE', '2'))
+mic = int(os.environ.get('ARTHUR_MIC_DEVICE', str(get_config('microphone.deviceIndex', 1))))
 fs = 16000
 seconds = 5
-scratch = pathlib.Path(r'C:\Users\riur\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad')
+scratch = get_path('runtime.scratchpadPath')
 scratch.mkdir(parents=True, exist_ok=True)
 log = scratch / 'arthur_voice_transcript.log'
 state = scratch / 'arthur_voice_listener_state.txt'
@@ -35,4 +36,4 @@ while True:
     segments, info = model.transcribe(str(path), beam_size=1, vad_filter=True)
     text = ' '.join(s.text.strip() for s in segments).strip()
     if text:
-        emit(f'[{time.strftime("%Y-%m-%d %H:%M:%S")}] Rin said: {text}')
+        emit(f'[{time.strftime("%Y-%m-%d %H:%M:%S")}] {user_first_name()} said: {text}')

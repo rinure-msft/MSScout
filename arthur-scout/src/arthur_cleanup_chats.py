@@ -6,8 +6,10 @@ import shutil
 import tempfile
 from typing import Any
 
+from arthur_config import get_path
 
-SCRATCH = pathlib.Path(r"C:\Users\riur\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad")
+
+SCRATCH = get_path("runtime.scratchpadPath", str(pathlib.Path(__file__).resolve().parent))
 ARCHIVE_DIR = SCRATCH / "arthur_archive"
 CHAT_CLEANUP_LOG = SCRATCH / "arthur_chat_cleanup.log"
 PROMPT_QUEUE_FILE = SCRATCH / "arthur_prompt_queue.jsonl"

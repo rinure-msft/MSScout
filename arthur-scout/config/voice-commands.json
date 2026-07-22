@@ -62,6 +62,49 @@
                     ]
     },
     {
+        "name":  "FAST MBR review",
+        "description":  "Draft a Fraud Ops review email from the FAST Cross Company Partnership MBR document.",
+        "aliases":  [
+                        "fast mbr review",
+                        "review fast mbr",
+                        "review fast partnership mbr",
+                        "review fast cross company partnership mbr",
+                        "review fast cross company partnership mbr document",
+                        "fast cross company partnership mbr",
+                        "fast cross company partnership mbr document",
+                        "fast partnership review"
+                    ]
+    },
+    {
+        "name":  "Coreidentity entitlement approvals",
+        "description":  "Approve eligible Coreidentity entitlements and email an approval report.",
+        "aliases":  [
+                        "coreidentity entitlement approvals",
+                        "approve coreidentity entitlements",
+                        "review coreidentity entitlements",
+                        "core identity entitlement approvals",
+                        "approve core identity entitlements",
+                        "review core identity entitlements",
+                        "pending access approvals",
+                        "review pending access approvals",
+                        "approve pending access approvals"
+                    ]
+    },
+    {
+        "name":  "Review All Entitlements",
+        "description":  "Review all entitlement approval portals, approve eligible requests, and email a report.",
+        "aliases":  [
+                        "review all entitlements",
+                        "approve all entitlements",
+                        "review all entitlement approvals",
+                        "approve all entitlement approvals",
+                        "review entitlement portals",
+                        "approve entitlement portals",
+                        "review all access approvals",
+                        "approve all access approvals"
+                    ]
+    },
+    {
         "name":  "evening inbox brief",
         "description":  "Create an executive evening inbox brief from priority folders.",
         "aliases":  [

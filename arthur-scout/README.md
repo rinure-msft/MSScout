@@ -16,6 +16,7 @@ arthur-scout/
     voice-commands.json
     automations.template.json
   src/
+    arthur_config.py
     arthur_voice_bridge.py
     arthur_supervisor.py
     arthur_queue_watchdog.py
