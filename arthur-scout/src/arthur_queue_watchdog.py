@@ -3,6 +3,7 @@ import datetime as dt
 import json
 import pathlib
 import tempfile
+import uuid
 from typing import Any
 
 from arthur_config import get_path
@@ -231,10 +232,72 @@ def print_status() -> int:
     return 0
 
 
+def claim_next(runner_id: str | None) -> int:
+    entries, invalid_lines = read_jsonl(QUEUE_FILE)
+    changed = False
+    selected: dict[str, Any] | None = None
+    runner = runner_id or f"arthur-responder-{uuid.uuid4().hex[:12]}"
+    current_time = iso_timestamp()
+
+    for entry in entries:
+        changed = normalize_entry(entry) or changed
+        if selected is not None:
+            continue
+        if str(entry.get("status") or "pending") != "pending":
+            continue
+        if entry.get("block_reason"):
+            continue
+
+        attempts = int(entry.get("attempt_count") or 0)
+        entry["status"] = "claimed"
+        entry["runner_id"] = runner
+        entry["claimed_at"] = current_time
+        entry["last_heartbeat_at"] = current_time
+        entry["attempt_count"] = attempts + 1
+        entry.setdefault("max_attempts", 2)
+        add_history(entry, "claimed", f"claimed by {runner}")
+        selected = entry
+        changed = True
+
+    if changed:
+        write_jsonl(QUEUE_FILE, entries)
+
+    if selected is None:
+        print(
+            json.dumps(
+                {
+                    "status": "no_runnable",
+                    "message": "No runnable prompt found.",
+                    "invalid_lines": len(invalid_lines),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    print(
+        json.dumps(
+            {
+                "status": "claimed",
+                "id": selected.get("id"),
+                "runner_id": selected.get("runner_id"),
+                "attempt_count": selected.get("attempt_count"),
+                "timestamp": selected.get("timestamp"),
+                "prompt": selected.get("prompt"),
+                "spoken_prompt": selected.get("spoken_prompt"),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Repair and report Arthur prompt queue state.")
     parser.add_argument("--repair", action="store_true", help="repair stale in-flight prompts and block exhausted retries")
     parser.add_argument("--status", action="store_true", help="print queue status counts")
+    parser.add_argument("--claim-next", action="store_true", help="claim and print the oldest runnable pending prompt")
+    parser.add_argument("--runner-id", default=None)
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--stale-running-seconds", type=int, default=20 * 60)
     parser.add_argument("--stale-pending-seconds", type=int, default=10 * 60)
@@ -248,6 +311,8 @@ def main() -> int:
             max_pending_age_seconds=args.max_pending_age_seconds,
             quiet=args.quiet,
         )
+    if args.claim_next:
+        return claim_next(args.runner_id)
     return print_status()
 
 
