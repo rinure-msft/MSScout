@@ -5,7 +5,8 @@ Open MS Scout to a new chat prompt.
 On your MS Scout prompt, run the following commands:
 
 	git clone https://github.com/rinure-msft/MSScout.git
-	%USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\MSScout\arthur-scout\install.ps1
+	
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\MSScout\arthur-scout\install.ps1
 
 Then edit the generated local config:
 
