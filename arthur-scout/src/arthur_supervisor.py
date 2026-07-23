@@ -181,6 +181,8 @@ def run_queue_watchdog() -> None:
             "600",
             "--max-pending-age-seconds",
             "3600",
+            "--clear-blocked-after-seconds",
+            "1800",
         ],
         capture_output=True,
         text=True,

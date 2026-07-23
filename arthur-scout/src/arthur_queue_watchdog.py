@@ -13,6 +13,7 @@ SCRATCH = get_path("runtime.scratchpadPath", str(pathlib.Path(__file__).resolve(
 QUEUE_FILE = SCRATCH / "arthur_prompt_queue.jsonl"
 RESPONSES_FILE = SCRATCH / "arthur_prompt_responses.jsonl"
 WATCHDOG_LOG = SCRATCH / "arthur_queue_watchdog.log"
+ARCHIVE_DIR = SCRATCH / "arthur_archive"
 
 TERMINAL_STATUSES = {"completed", "blocked", "failed"}
 ACTIVE_STATUSES = {"claimed", "running"}
@@ -91,6 +92,19 @@ def write_jsonl(path: pathlib.Path, entries: list[dict[str, Any]]) -> None:
     pathlib.Path(temp_name).replace(path)
 
 
+def append_jsonl(path: pathlib.Path, entries: list[dict[str, Any]]) -> None:
+    if not entries:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="\n") as handle:
+        for entry in entries:
+            handle.write(json.dumps(entry, separators=(",", ":"), ensure_ascii=False) + "\n")
+
+
+def archive_blocked_path() -> pathlib.Path:
+    return ARCHIVE_DIR / f"arthur_prompt_queue_blocked_auto_cleared_{now().strftime('%Y%m%d')}.jsonl"
+
+
 def response_ids() -> set[str]:
     entries, _ = read_jsonl(RESPONSES_FILE)
     return {str(entry.get("id")) for entry in entries if entry.get("id")}
@@ -145,10 +159,13 @@ def repair_queue(
     stale_running_seconds: int,
     stale_pending_seconds: int,
     max_pending_age_seconds: int,
+    clear_blocked_after_seconds: int,
     quiet: bool,
 ) -> int:
     entries, invalid_lines = read_jsonl(QUEUE_FILE)
     changed = False
+    keep_entries: list[dict[str, Any]] = []
+    archived_blocked: list[dict[str, Any]] = []
     if invalid_lines and not quiet:
         log(f"Queue contains {len(invalid_lines)} invalid JSONL line(s); leaving them out of repaired queue.")
         changed = True
@@ -217,8 +234,23 @@ def repair_queue(
                 if not quiet:
                     log(f"Blocked failed Arthur prompt {prompt_id}: {reason}.")
 
+        elif status == "blocked":
+            blocked_age = age_seconds(entry.get("completed_at") or entry.get("last_heartbeat_at") or entry.get("claimed_at") or entry.get("timestamp"))
+            if blocked_age is not None and blocked_age >= clear_blocked_after_seconds:
+                entry["auto_cleared_at"] = iso_timestamp()
+                add_history(entry, "auto_cleared_blocked", f"blocked for {blocked_age:.0f}s")
+                archived_blocked.append(entry)
+                changed = True
+                if not quiet:
+                    log(f"Auto-cleared blocked Arthur prompt {prompt_id} after {blocked_age:.0f}s.")
+                continue
+
+        keep_entries.append(entry)
+
     if changed:
-        write_jsonl(QUEUE_FILE, entries)
+        if archived_blocked:
+            append_jsonl(archive_blocked_path(), archived_blocked)
+        write_jsonl(QUEUE_FILE, keep_entries)
     return 0
 
 
@@ -302,6 +334,7 @@ def main() -> int:
     parser.add_argument("--stale-running-seconds", type=int, default=20 * 60)
     parser.add_argument("--stale-pending-seconds", type=int, default=10 * 60)
     parser.add_argument("--max-pending-age-seconds", type=int, default=60 * 60)
+    parser.add_argument("--clear-blocked-after-seconds", type=int, default=30 * 60)
     args = parser.parse_args()
 
     if args.repair:
@@ -309,6 +342,7 @@ def main() -> int:
             stale_running_seconds=args.stale_running_seconds,
             stale_pending_seconds=args.stale_pending_seconds,
             max_pending_age_seconds=args.max_pending_age_seconds,
+            clear_blocked_after_seconds=args.clear_blocked_after_seconds,
             quiet=args.quiet,
         )
     if args.claim_next:
