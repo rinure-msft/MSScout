@@ -30,18 +30,18 @@
     "steps": [
       {
         "id": "1",
-        "label": "Run cleanup",
-        "prompt": "Run the Arthur chat cleanup script: `python \"<SCRATCHPAD_PATH>\\arthur_cleanup_chats.py\" --max-age-hours 4 --keep-latest-responses 50 --log-retention-days 7`. This archives Arthur Copilot prompt responder chat/history entries older than 4 hours and cleans local Arthur chat artifacts. Preserve active pending, claimed, running, blocked, and failed queue entries. Always produce a short visible status response; never stay quiet."
+        "label": "Delete old responder sessions",
+        "prompt": "Search Microsoft Scout sessions for sessions named exactly `Arthur Copilot prompt responder`. Delete sessions older than 4 hours using the Scout session deletion tool. Do not delete the current session, sessions less than 4 hours old, active/open sessions, or sessions with names other than `Arthur Copilot prompt responder`. Always produce a visible count summary; never stay quiet."
       },
       {
         "id": "2",
-        "label": "Verify cleanup",
-        "prompt": "Check `<SCRATCHPAD_PATH>\\arthur_chat_cleanup.log` and summarize the latest cleanup result in one sentence."
+        "label": "Run local cleanup",
+        "prompt": "Run the Arthur chat cleanup script: `python \"<SCRATCHPAD_PATH>\\arthur_cleanup_chats.py\" --max-age-hours 4 --keep-latest-responses 50 --log-retention-days 7`. This archives local Arthur prompt responder history and chat artifacts older than 4 hours. Preserve active pending, claimed, running, blocked, and failed queue entries."
       },
       {
         "id": "3",
         "label": "Report status",
-        "prompt": "If cleanup completed, respond with `Arthur chat cleanup complete.` plus a short count summary if available. If cleanup failed, report the failure reason."
+        "prompt": "Report a concise cleanup summary: number of old Scout responder sessions deleted, local artifacts/history archived, active/open sessions skipped, and any errors. If nothing was found, say `Arthur chat cleanup complete. No old responder sessions found.`"
       }
     ]
   }
