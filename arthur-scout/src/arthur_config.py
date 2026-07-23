@@ -40,6 +40,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "scratchpadPath": str(MODULE_DIR),
         "workiqPath": str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd"),
         "automationFile": str(pathlib.Path.home() / ".copilot" / "m-automations" / "automations.json"),
+        "promptResponderAutomationId": "2w51kbs3mqra79xo",
         "cleanupChatArtifactsOlderThanHours": 4,
         "chatCleanupIntervalMinutes": 45,
         "logRetentionDays": 7,

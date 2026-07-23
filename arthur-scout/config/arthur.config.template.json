@@ -25,6 +25,7 @@
   },
   "runtime": {
     "scratchpadPath": "<MS_SCOUT_SCRATCHPAD_PATH>",
+    "promptResponderAutomationId": "2w51kbs3mqra79xo",
     "cleanupChatArtifactsOlderThanHours": 4,
     "chatCleanupIntervalMinutes": 45,
     "logRetentionDays": 7

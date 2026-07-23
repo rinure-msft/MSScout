@@ -6,7 +6,7 @@ import shutil
 import tempfile
 from typing import Any
 
-from arthur_config import get_path
+from arthur_config import get_config, get_path
 
 
 SCRATCH = get_path("runtime.scratchpadPath", str(pathlib.Path(__file__).resolve().parent))
@@ -14,6 +14,8 @@ ARCHIVE_DIR = SCRATCH / "arthur_archive"
 CHAT_CLEANUP_LOG = SCRATCH / "arthur_chat_cleanup.log"
 PROMPT_QUEUE_FILE = SCRATCH / "arthur_prompt_queue.jsonl"
 PROMPT_RESPONSES_FILE = SCRATCH / "arthur_prompt_responses.jsonl"
+AUTOMATION_FILE = get_path("runtime.automationFile", str(pathlib.Path.home() / ".copilot" / "m-automations" / "automations.json"))
+PROMPT_RESPONDER_AUTOMATION_ID = str(get_config("runtime.promptResponderAutomationId", "2w51kbs3mqra79xo"))
 
 ACTIVE_QUEUE_STATUSES = {"pending", "claimed", "running"}
 REVIEW_QUEUE_STATUSES = {"blocked", "failed"}
@@ -80,7 +82,7 @@ def parse_timestamp(value: Any) -> dt.datetime | None:
 
 
 def entry_age(entry: dict[str, Any]) -> dt.timedelta | None:
-    for key in ("completed_at", "timestamp", "created_at"):
+    for key in ("completed_at", "completedAt", "timestamp", "created_at", "startedAt"):
         parsed = parse_timestamp(entry.get(key))
         if parsed is not None:
             return now() - parsed
@@ -225,6 +227,43 @@ def prune_archive_logs(log_retention: dt.timedelta, dry_run: bool) -> int:
     return deleted
 
 
+def cleanup_prompt_responder_history(max_age: dt.timedelta, dry_run: bool) -> int:
+    history_path = AUTOMATION_FILE.parent / "history" / f"{PROMPT_RESPONDER_AUTOMATION_ID}.json"
+    if not history_path.exists():
+        return 0
+
+    try:
+        entries = json.loads(history_path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        log(f"Prompt responder history is unreadable: {type(exc).__name__}: {exc}")
+        return 0
+    if not isinstance(entries, list):
+        log(f"Prompt responder history root is not a list: {history_path}")
+        return 0
+
+    keep: list[dict[str, Any]] = []
+    archive: list[dict[str, Any]] = []
+    invalid = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            invalid += 1
+            continue
+        age = entry_age(entry)
+        if age is not None and age >= max_age:
+            archive.append(entry)
+        else:
+            keep.append(entry)
+
+    removed = len(archive) + invalid
+    if removed and dry_run:
+        log(f"Would archive {len(archive)} prompt responder chat/history entries and drop {invalid} invalid entries.")
+    elif removed:
+        append_jsonl(archive_path("arthur_prompt_responder_history"), archive)
+        history_path.write_text(json.dumps(keep, indent=2), encoding="utf-8")
+        log(f"Archived {len(archive)} prompt responder chat/history entries; kept {len(keep)} recent entries.")
+    return removed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Clean local Arthur/Scout chat artifacts while preserving durable queue state.")
     parser.add_argument("--max-age-hours", type=float, default=4.0)
@@ -242,11 +281,13 @@ def main() -> int:
     deleted = delete_old_artifacts(max_age, args.dry_run)
     archived_queue = archive_completed_queue(max_age, args.dry_run)
     archived_responses = archive_response_history(max_age, args.keep_latest_responses, args.dry_run)
+    archived_responder_history = cleanup_prompt_responder_history(max_age, args.dry_run)
     pruned_logs = prune_archive_logs(log_retention, args.dry_run)
 
     log(
         f"Chat cleanup complete: deleted artifacts={deleted}, archived queue entries={archived_queue}, "
-        f"archived responses={archived_responses}, pruned archived logs={pruned_logs}, dry_run={args.dry_run}."
+        f"archived responses={archived_responses}, archived responder history={archived_responder_history}, "
+        f"pruned archived logs={pruned_logs}, dry_run={args.dry_run}."
     )
     return 0
 

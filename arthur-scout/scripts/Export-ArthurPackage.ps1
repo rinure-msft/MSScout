@@ -156,6 +156,7 @@ function Write-Templates {
   },
   "runtime": {
     "scratchpadPath": "<MS_SCOUT_SCRATCHPAD_PATH>",
+    "promptResponderAutomationId": "2w51kbs3mqra79xo",
     "cleanupChatArtifactsOlderThanHours": 4,
     "chatCleanupIntervalMinutes": 45,
     "logRetentionDays": 7
@@ -187,6 +188,34 @@ function Write-Templates {
         "id": "1",
         "label": "Main",
         "prompt": "Check <SCRATCHPAD_PATH>\\arthur_prompt_queue.jsonl for the oldest runnable pending entry. Claim it, refresh heartbeat metadata while running, execute the prompt using normal Scout safety/privacy rules, append a response to arthur_prompt_responses.jsonl, and mark the queue entry completed, failed, or blocked. Do not leave claimed/running entries stale. Close Playwright after browser automation."
+      }
+    ]
+  },
+  {
+    "name": "Arthur Copilot prompt responder Chat Cleanup",
+    "description": "Archives Arthur Copilot prompt responder chat/history entries and local chat artifacts older than 4 hours while preserving active queue state.",
+    "enabled": true,
+    "triggerType": "schedule",
+    "schedule": {
+      "kind": "interval",
+      "naturalLanguage": "every hour",
+      "intervalMinutes": 60
+    },
+    "steps": [
+      {
+        "id": "1",
+        "label": "Run cleanup",
+        "prompt": "Run the Arthur chat cleanup script: `python \"<SCRATCHPAD_PATH>\\arthur_cleanup_chats.py\" --max-age-hours 4 --keep-latest-responses 50 --log-retention-days 7`. This archives Arthur Copilot prompt responder chat/history entries older than 4 hours and cleans local Arthur chat artifacts. Preserve active pending, claimed, running, blocked, and failed queue entries. Always produce a short visible status response; never stay quiet."
+      },
+      {
+        "id": "2",
+        "label": "Verify cleanup",
+        "prompt": "Check `<SCRATCHPAD_PATH>\\arthur_chat_cleanup.log` and summarize the latest cleanup result in one sentence."
+      },
+      {
+        "id": "3",
+        "label": "Report status",
+        "prompt": "If cleanup completed, respond with `Arthur chat cleanup complete.` plus a short count summary if available. If cleanup failed, report the failure reason."
       }
     ]
   }
