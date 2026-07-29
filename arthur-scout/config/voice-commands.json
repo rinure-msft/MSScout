@@ -391,6 +391,7 @@
         "aliases":  [
                         "calendar summary",
                         "today\u0027s calendar",
+                        "today calendar",
                         "my calendar",
                         "summarize my calendar"
                     ]
@@ -401,8 +402,11 @@
         "aliases":  [
                         "update action tracker with new items",
                         "add new items to action tracker",
+                        "update action tracker",
                         "update my action tracker",
                         "refresh action tracker",
+                        "refresh my action tracker",
+                        "date action tracker",
                         "add action tracker items",
                         "new action items"
                     ]

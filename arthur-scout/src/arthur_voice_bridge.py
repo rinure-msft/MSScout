@@ -1367,14 +1367,17 @@ COMMANDS = [
     ),
     Command("meeting prep", ("meeting prep", "prep my next meeting", "prepare me for my next meeting"), "meeting_prep", "Prepare for the next meeting."),
     Command("next meeting", ("next meeting", "what is my next meeting"), "next_meeting", "Read next meeting."),
-    Command("calendar summary", ("calendar summary", "today's calendar", "my calendar", "summarize my calendar"), "calendar_summary", "Summarize today's calendar."),
+    Command("calendar summary", ("calendar summary", "today's calendar", "today calendar", "my calendar", "summarize my calendar"), "calendar_summary", "Summarize today's calendar."),
     Command(
         "update Action Tracker with new items",
         (
             "update action tracker with new items",
             "add new items to action tracker",
+            "update action tracker",
             "update my action tracker",
             "refresh action tracker",
+            "refresh my action tracker",
+            "date action tracker",
             "add action tracker items",
             "new action items",
         ),
@@ -1448,10 +1451,14 @@ def write_voice_command_index() -> None:
 
 
 def find_command(text: str) -> Command | None:
+    best: tuple[int, Command] | None = None
     for item in COMMANDS:
-        if any(command_matches(text, alias) for alias in item.aliases):
-            return item
-    return None
+        for alias in item.aliases:
+            if command_matches(text, alias):
+                score = len(normalize_command_text(alias.replace(" *", "")))
+                if best is None or score > best[0]:
+                    best = (score, item)
+    return best[1] if best else None
 
 
 def handle_command(text: str, speaker: Speaker) -> bool:
