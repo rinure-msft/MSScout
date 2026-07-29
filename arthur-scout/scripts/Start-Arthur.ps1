@@ -1,3 +1,8 @@
+param(
+    [ValidateSet('startup', 'updates')]
+    [string] $GreetingScenario = 'startup'
+)
+
 $ErrorActionPreference = 'Stop'
 
 $Scratch = $PSScriptRoot
@@ -93,10 +98,11 @@ function Start-ArthurSupervisor {
         return
     }
 
-    $argumentList = '"' + $SupervisorScript + '" --mic-device ' + $ArthurMicDevice + ' --threshold ' + $ArthurThreshold
+    $argumentList = '"' + $SupervisorScript + '" --mic-device ' + $ArthurMicDevice + ' --threshold ' + $ArthurThreshold + ' --greeting-scenario ' + $GreetingScenario
     $env:ARTHUR_CONFIG = $ConfigFile
     $env:ARTHUR_TTS = $ArthurTts
     $env:ARTHUR_TIMEZONE = $ArthurTimezone
+    $env:ARTHUR_GREETING_SCENARIO = $GreetingScenario
     $process = Start-Process -FilePath 'python' `
         -ArgumentList $argumentList `
         -WorkingDirectory $Scratch `

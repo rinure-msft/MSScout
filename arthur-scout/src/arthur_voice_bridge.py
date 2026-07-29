@@ -1131,7 +1131,7 @@ def h_prompt_window(text: str, speaker: Speaker, command: Command) -> bool:
     return True
 
 
-def startup_greeting(name: str, timezone_name: str) -> str:
+def startup_greeting(name: str, timezone_name: str, scenario: str) -> str:
     try:
         now = current_time(timezone_name)
     except ZoneInfoNotFoundError:
@@ -1139,12 +1139,18 @@ def startup_greeting(name: str, timezone_name: str) -> str:
         log(COMMAND_LOG, f"Timezone not found: {timezone_name}; falling back to system local time.")
     hour = now.hour
     if hour < 12:
-        greeting = "Good morning"
+        time_of_day = "morning"
     elif hour < 18:
-        greeting = "Good afternoon"
+        time_of_day = "afternoon"
     else:
-        greeting = "Good evening"
-    return f"{greeting} {name}, I am up and operational after applying the requested updates. I am ready to receive your instructions."
+        time_of_day = "evening"
+    template = str(
+        get_config(
+            f"greetings.{scenario}",
+            get_config("greetings.startup", "good {time_of_day} {name}, I am ready to be of assistance."),
+        )
+    )
+    return template.format(time_of_day=time_of_day, name=name)
 
 
 HANDLERS = {
@@ -1473,6 +1479,7 @@ def main() -> int:
     parser.add_argument("--response-poll-seconds", type=float, default=2.0)
     parser.add_argument("--welcome-name", default=os.environ.get("ARTHUR_WELCOME_NAME", user_first_name()))
     parser.add_argument("--timezone", default=os.environ.get("ARTHUR_TIMEZONE", DEFAULT_TIMEZONE))
+    parser.add_argument("--greeting-scenario", choices=("startup", "updates"), default=os.environ.get("ARTHUR_GREETING_SCENARIO", "startup"))
     parser.add_argument("--once", action="store_true", help="Handle one recognized wake-word command, then exit.")
     args = parser.parse_args()
 
@@ -1498,7 +1505,7 @@ def main() -> int:
         daemon=True,
     )
     response_thread.start()
-    speak(speaker, startup_greeting(args.welcome_name, args.timezone))
+    speak(speaker, startup_greeting(args.welcome_name, args.timezone, args.greeting_scenario))
 
     count = 0
     try:

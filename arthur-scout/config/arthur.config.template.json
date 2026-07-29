@@ -6,6 +6,10 @@
     "tts": "edge",
     "edgeVoice": "en-US-BrianNeural"
   },
+  "greetings": {
+    "startup": "good {time_of_day} {name}, I am ready to be of assistance.",
+    "updates": "good {time_of_day} {name}, your updates have been applied and I am ready to assist you."
+  },
   "microphone": {
     "deviceIndex": 1,
     "threshold": 350,

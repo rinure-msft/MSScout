@@ -77,10 +77,10 @@ def stop_processes(process_ids: list[int]) -> None:
     )
 
 
-def start_bridge(mic_device: int, tts: str, threshold: int | None) -> None:
+def start_bridge(mic_device: int, tts: str, threshold: int | None, greeting_scenario: str) -> None:
     if not BRIDGE_SCRIPT.exists():
         raise FileNotFoundError(f"Arthur bridge script not found: {BRIDGE_SCRIPT}")
-    args = [str(BRIDGE_SCRIPT), "--device", str(mic_device), "--tts", tts]
+    args = [str(BRIDGE_SCRIPT), "--device", str(mic_device), "--tts", tts, "--greeting-scenario", greeting_scenario]
     if threshold is not None:
         args.extend(["--threshold", str(threshold)])
     stdout = STDOUT_LOG.open("a", encoding="utf-8")
@@ -119,19 +119,19 @@ def heartbeat_age_seconds() -> float | None:
     return (dt.datetime.now() - value).total_seconds()
 
 
-def ensure_bridge(mic_device: int, tts: str, stale_seconds: int, threshold: int | None) -> None:
+def ensure_bridge(mic_device: int, tts: str, stale_seconds: int, threshold: int | None, greeting_scenario: str) -> None:
     processes = bridge_process_ids()
     age = heartbeat_age_seconds()
     if len(processes) > 1:
         stop_processes(processes[1:])
         log(f"Stopped duplicate Arthur bridge processes: {processes[1:]}")
     if not processes:
-        start_bridge(mic_device, tts, threshold)
+        start_bridge(mic_device, tts, threshold, greeting_scenario)
         return
     if age is not None and age > stale_seconds:
         log(f"Bridge heartbeat stale for {age:.0f}s; restarting bridge.")
         stop_processes(processes)
-        start_bridge(mic_device, tts, threshold)
+        start_bridge(mic_device, tts, threshold, greeting_scenario)
 
 
 def ensure_automation_ownership() -> None:
@@ -290,6 +290,7 @@ def main() -> int:
     parser.add_argument("--mic-device", type=int, default=int(os.environ.get("ARTHUR_MIC_DEVICE", str(get_config("microphone.deviceIndex", 1)))))
     parser.add_argument("--tts", choices=("edge", "windows"), default=os.environ.get("ARTHUR_TTS", str(get_config("voice.tts", "edge"))))
     parser.add_argument("--threshold", type=int, default=int(os.environ["ARTHUR_THRESHOLD"]) if os.environ.get("ARTHUR_THRESHOLD") else int(get_config("microphone.threshold", 350)))
+    parser.add_argument("--greeting-scenario", choices=("startup", "updates"), default=os.environ.get("ARTHUR_GREETING_SCENARIO", "startup"))
     parser.add_argument("--interval-seconds", type=int, default=30)
     parser.add_argument("--stale-heartbeat-seconds", type=int, default=180)
     parser.add_argument("--stale-prompt-seconds", type=int, default=300)
@@ -304,7 +305,7 @@ def main() -> int:
     log("Arthur supervisor started.")
     while True:
         ensure_automation_ownership()
-        ensure_bridge(args.mic_device, args.tts, args.stale_heartbeat_seconds, args.threshold)
+        ensure_bridge(args.mic_device, args.tts, args.stale_heartbeat_seconds, args.threshold, args.greeting_scenario)
         if time.monotonic() - last_watchdog > 2 * 60:
             run_queue_watchdog()
             last_watchdog = time.monotonic()
