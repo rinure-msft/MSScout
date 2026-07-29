@@ -216,15 +216,26 @@ def queue_self_email_handoff(prompt_id: str, subject: str, body: str, source_pro
     append_jsonl(EMAIL_HANDOFF_FILE, entry)
 
 
+def queue_scout_self_email_prompt_handoff(prompt_id: str, subject: str, source_prompt: str) -> None:
+    entry = {
+        "id": f"email-{prompt_id}",
+        "prompt_id": prompt_id,
+        "created_at": iso_timestamp(),
+        "status": "pending",
+        "type": "scout_self_email_prompt",
+        "to": [self_email()],
+        "subject": subject,
+        "source": "arthur_prompt_worker",
+        "source_prompt": source_prompt,
+        "response_after_send": "Sent to your inbox.",
+    }
+    append_jsonl(EMAIL_HANDOFF_FILE, entry)
+
+
 def handle_daily_briefing_split(prompt_id: str, prompt: str) -> HandlerResult:
-    summary_prompt = strip_email_send_instruction(prompt)
-    summary_prompt += "\n\nReturn only the Daily Briefing body. Do not try to send email."
-    result = run_workiq(summary_prompt, timeout=300, max_chars=6000)
-    if result.status != "completed":
-        return result
     subject = f"Daily Briefing - {current_date_label()}"
-    queue_self_email_handoff(prompt_id, subject, result.response, prompt)
-    return HandlerResult("completed", "Daily briefing generated and queued for email delivery.")
+    queue_scout_self_email_prompt_handoff(prompt_id, subject, prompt)
+    return HandlerResult("completed", "Daily briefing queued for Scout email generation and delivery.")
 
 
 def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None) -> HandlerResult:

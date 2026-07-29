@@ -50,16 +50,21 @@ def replace_response(prompt_id: str, response: str) -> None:
 
 
 def validate(entry: dict[str, Any]) -> str | None:
-    if entry.get("type") != "self_email":
-        return "handoff type is not self_email"
+    handoff_type = entry.get("type")
+    if handoff_type not in {"self_email", "scout_self_email_prompt"}:
+        return "handoff type is not supported"
     allowed = self_email().lower()
     recipients = [str(item).lower() for item in entry.get("to", [])]
     if not allowed or recipients != [allowed]:
         return "handoff recipient does not match configured self-email"
     if entry.get("cc") or entry.get("bcc"):
         return "handoff contains cc or bcc recipients"
-    if not entry.get("subject") or not entry.get("body"):
+    if not entry.get("subject"):
+        return "handoff is missing subject"
+    if handoff_type == "self_email" and not entry.get("body"):
         return "handoff is missing subject or body"
+    if handoff_type == "scout_self_email_prompt" and not entry.get("source_prompt"):
+        return "handoff is missing source prompt"
     return None
 
 
