@@ -254,7 +254,7 @@ def handle_daily_briefing_split(prompt_id: str, prompt: str) -> HandlerResult:
 
 
 def handle_action_tracker_handoff(prompt_id: str, prompt: str) -> HandlerResult:
-    response = "Updated and sent to your Teams chat."
+    response = "Sent to your inbox."
     queue_scout_task_handoff(prompt_id, prompt, "action_tracker", response)
     return HandlerResult("completed", "Action Tracker update queued for Scout processing.")
 

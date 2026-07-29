@@ -1072,12 +1072,12 @@ def h_action_tracker(text: str, speaker: Speaker, command: Command) -> bool:
         "unless Rin explicitly names a different assignee in the spoken command. Store Priority, Item to be completed, Description, Due Date, Next Action, Status, Owner, Source, and Last Updated "
         "in standard ADO fields where available and otherwise in the description/comments. Deduplicate existing items by normalized title/source "
         "before adding anything new. Active items should remain in an active/new state; completed items should move to the project's completed "
-        "state such as Done, Closed, or Completed. After creating or updating ADO items, send Rin a Teams chat message at Rin.Ure@microsoft.com "
-        "containing only a concise summary and the ADO tracker/work item links. Rin has explicitly requested this Teams message to himself. "
-        "Do not send to anyone else. If Playwright/browser automation is used, close the Playwright browser after the ADO update and Teams message are complete. "
-        "Respond to Arthur with a short second-person confirmation, such as: Updated and sent to your Teams chat."
+        "state such as Done, Closed, or Completed. After creating or updating ADO items, send an email addressed only to Rin.Ure@microsoft.com "
+        "containing only a concise summary and the ADO tracker/work item links. Rin has explicitly requested this email to himself. "
+        "Do not send to anyone else. If Playwright/browser automation is used, close the Playwright browser after the ADO update and email send are complete. "
+        "Respond to Arthur with exactly: Sent to your inbox."
     )
-    speak(speaker, "I am creating your Azure DevOps Action Tracker and will send you the tracker link in Teams.")
+    speak(speaker, "I am creating your Azure DevOps Action Tracker and will send the tracker link to your inbox.")
     return True
 
 
@@ -1089,9 +1089,9 @@ def h_action_tracker_new_items(text: str, speaker: Speaker, command: Command) ->
         "for new action items that are not already in ADO. Use Azure DevOps at `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker`. "
         "Add only distinct new work items tagged `ArthurActionTracker` and assign them to Rin Ure (Rin.Ure@microsoft.com) unless Rin explicitly names a different assignee, preserving Priority, Item to be completed, Description, Due Date, Next Action, "
         "Status, Owner, Source, and Last Updated in standard fields where available and otherwise in the description/comments. Deduplicate existing "
-        "items by normalized title/source. After updating, send Rin a Teams chat message at Rin.Ure@microsoft.com with the count of new items added "
+        "items by normalized title/source. After updating, send an email addressed only to Rin.Ure@microsoft.com with the count of new items added "
         "and the ADO tracker/work item links. Do not send to anyone else. If Playwright/browser automation is used, close the Playwright browser after "
-        "the ADO update and Teams message are complete. Respond to Arthur with a short second-person confirmation."
+        "the ADO update and email send are complete. Respond to Arthur with exactly: Sent to your inbox."
     )
     speak(speaker, "I am updating your Action Tracker with new items.")
     return True
@@ -1104,9 +1104,9 @@ def h_action_tracker_completed_items(text: str, speaker: Speaker, command: Comma
         "Review the spoken command and recent context to identify items that Rin indicated are complete. Find matching ADO work items tagged "
         "`ArthurActionTracker` in `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker`. Move matching items to the project's completed "
         "state such as Done, Closed, or Completed, keep or set Assigned To as Rin Ure (Rin.Ure@microsoft.com) unless Rin explicitly names a different assignee, and preserve Description, Due Date, Next Action, Owner, Source, and notes/comments. If the spoken "
-        "command does not identify specific completed items, ask Rin which items to mark complete instead of guessing. After updating, send Rin a Teams "
-        "chat message at Rin.Ure@microsoft.com with the count of items marked complete and the ADO tracker/work item links. Do not send to anyone else. "
-        "If Playwright/browser automation is used, close the Playwright browser after the ADO update and Teams message are complete. Respond to Arthur with a short second-person confirmation."
+        "command does not identify specific completed items, ask Rin which items to mark complete instead of guessing. After updating, send an email "
+        "addressed only to Rin.Ure@microsoft.com with the count of items marked complete and the ADO tracker/work item links. Do not send to anyone else. "
+        "If Playwright/browser automation is used, close the Playwright browser after the ADO update and email send are complete. Respond to Arthur with exactly: Sent to your inbox."
     )
     speak(speaker, "I am updating your Action Tracker for completed items.")
     return True
@@ -1117,9 +1117,9 @@ def h_action_tracker_review_completed(text: str, speaker: Speaker, command: Comm
         "Review Arthur's completed Azure DevOps Action Tracker tasks. Read the tracker configuration from "
         "`C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_action_tracker_state.json`. "
         "Use Azure DevOps at `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker` to review completed work items tagged `ArthurActionTracker`. "
-        "Summarize completed items by priority, completion date if available, and owner. Send Rin a Teams chat message at Rin.Ure@microsoft.com with "
+        "Summarize completed items by priority, completion date if available, and owner. Send an email addressed only to Rin.Ure@microsoft.com with "
         "a concise completed-task summary and ADO tracker/work item links. Do not send to anyone else. If Playwright/browser automation is used, close "
-        "the Playwright browser after the review and Teams message are complete. Respond to Arthur with a short second-person confirmation that the completed tasks were reviewed."
+        "the Playwright browser after the review and email send are complete. Respond to Arthur with exactly: Sent to your inbox."
     )
     speak(speaker, "I am reviewing your completed Action Tracker tasks.")
     return True
