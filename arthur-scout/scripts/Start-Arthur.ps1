@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('startup', 'updates')]
     [string] $GreetingScenario = 'startup'
 )
@@ -29,11 +29,10 @@ $ArthurThreshold = if ($ArthurConfig -and $ArthurConfig.microphone -and $null -n
 $ArthurTts = if ($ArthurConfig -and $ArthurConfig.voice -and $ArthurConfig.voice.tts) { [string] $ArthurConfig.voice.tts } else { 'edge' }
 $ArthurTimezone = if ($ArthurConfig -and $ArthurConfig.timezone) { [string] $ArthurConfig.timezone } else { 'Mountain Standard Time' }
 
-$EnabledArthurAutomationNames = @(
-    'Arthur Copilot prompt responder'
-)
+$EnabledArthurAutomationNames = @()
 
 $DisabledArthurAutomationNames = @(
+    'Arthur Copilot prompt responder',
     'Arthur recording cleanup',
     'Arthur prompt queue executor',
     'Arthur voice transcript polling',
@@ -135,3 +134,4 @@ if (-not (Test-Path -LiteralPath $PromptResponsesFile)) {
 Enable-ArthurAutomations
 Start-ArthurSupervisor
 Write-ArthurStatus 'Startup complete.'
+

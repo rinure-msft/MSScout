@@ -12,21 +12,24 @@ from arthur_config import get_config, get_path
 
 SCRATCH = get_path("runtime.scratchpadPath", str(pathlib.Path(__file__).resolve().parent))
 BRIDGE_SCRIPT = SCRATCH / "arthur_voice_bridge.py"
+PROMPT_WORKER_SCRIPT = SCRATCH / "arthur_prompt_worker.py"
 CLEANUP_SCRIPT = SCRATCH / "arthur_cleanup_recordings.py"
 CHAT_CLEANUP_SCRIPT = SCRATCH / "arthur_cleanup_chats.py"
 WATCHDOG_SCRIPT = SCRATCH / "arthur_queue_watchdog.py"
 AUTOMATION_FILE = get_path("runtime.automationFile", str(pathlib.Path.home() / ".copilot" / "m-automations" / "automations.json"))
 SUPERVISOR_LOG = SCRATCH / "arthur_supervisor.log"
 HEARTBEAT_FILE = SCRATCH / "arthur_voice_bridge_heartbeat.json"
+PROMPT_WORKER_HEARTBEAT_FILE = SCRATCH / "arthur_prompt_worker_heartbeat.json"
 BROWSER_STATE_FILE = SCRATCH / "arthur_browser_state.json"
 PROMPT_QUEUE_FILE = SCRATCH / "arthur_prompt_queue.jsonl"
 STDOUT_LOG = SCRATCH / "arthur_voice_bridge_stdout.log"
 STDERR_LOG = SCRATCH / "arthur_voice_bridge_stderr.log"
+PROMPT_WORKER_STDOUT_LOG = SCRATCH / "arthur_prompt_worker_stdout.log"
+PROMPT_WORKER_STDERR_LOG = SCRATCH / "arthur_prompt_worker_stderr.log"
 
-ENABLED_AUTOMATIONS = {
-    "Arthur Copilot prompt responder",
-}
+ENABLED_AUTOMATIONS: set[str] = set()
 DISABLED_AUTOMATIONS = {
+    "Arthur Copilot prompt responder",
     "Arthur recording cleanup",
     "Arthur prompt queue executor",
     "Arthur voice transcript polling",
@@ -62,6 +65,19 @@ def bridge_process_ids() -> list[int]:
     result = run_powershell(command)
     if result.returncode != 0:
         log(f"Bridge process lookup failed: {(result.stderr or result.stdout).strip()[:300]}")
+        return []
+    return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
+
+
+def prompt_worker_process_ids() -> list[int]:
+    command = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.CommandLine -like '*arthur_prompt_worker.py*' -and $_.Name -match 'python' } | "
+        "ForEach-Object { $_.ProcessId }"
+    )
+    result = run_powershell(command)
+    if result.returncode != 0:
+        log(f"Prompt worker process lookup failed: {(result.stderr or result.stdout).strip()[:300]}")
         return []
     return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
 
@@ -119,6 +135,26 @@ def heartbeat_age_seconds() -> float | None:
     return (dt.datetime.now() - value).total_seconds()
 
 
+def heartbeat_age_seconds_for(path: pathlib.Path) -> float | None:
+    if not path.exists():
+        return None
+    try:
+        heartbeat = json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError:
+        log(f"Heartbeat file is unreadable: {path.name}")
+        return None
+    timestamp = heartbeat.get("timestamp")
+    if not timestamp:
+        return None
+    try:
+        value = dt.datetime.fromisoformat(str(timestamp))
+    except ValueError:
+        return None
+    if value.tzinfo is not None:
+        value = value.astimezone().replace(tzinfo=None)
+    return (dt.datetime.now() - value).total_seconds()
+
+
 def ensure_bridge(mic_device: int, tts: str, stale_seconds: int, threshold: int | None, greeting_scenario: str) -> None:
     processes = bridge_process_ids()
     age = heartbeat_age_seconds()
@@ -132,6 +168,36 @@ def ensure_bridge(mic_device: int, tts: str, stale_seconds: int, threshold: int 
         log(f"Bridge heartbeat stale for {age:.0f}s; restarting bridge.")
         stop_processes(processes)
         start_bridge(mic_device, tts, threshold, greeting_scenario)
+
+
+def start_prompt_worker() -> None:
+    if not PROMPT_WORKER_SCRIPT.exists():
+        raise FileNotFoundError(f"Arthur prompt worker script not found: {PROMPT_WORKER_SCRIPT}")
+    stdout = PROMPT_WORKER_STDOUT_LOG.open("a", encoding="utf-8")
+    stderr = PROMPT_WORKER_STDERR_LOG.open("a", encoding="utf-8")
+    subprocess.Popen(
+        [sys.executable, str(PROMPT_WORKER_SCRIPT)],
+        cwd=str(SCRATCH),
+        stdout=stdout,
+        stderr=stderr,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    log("Started Arthur local prompt worker.")
+
+
+def ensure_prompt_worker(stale_seconds: int) -> None:
+    processes = prompt_worker_process_ids()
+    age = heartbeat_age_seconds_for(PROMPT_WORKER_HEARTBEAT_FILE)
+    if len(processes) > 1:
+        stop_processes(processes[1:])
+        log(f"Stopped duplicate Arthur prompt worker processes: {processes[1:]}")
+    if not processes:
+        start_prompt_worker()
+        return
+    if age is not None and age > stale_seconds:
+        log(f"Prompt worker heartbeat stale for {age:.0f}s; restarting worker.")
+        stop_processes(processes)
+        start_prompt_worker()
 
 
 def ensure_automation_ownership() -> None:
@@ -293,6 +359,7 @@ def main() -> int:
     parser.add_argument("--greeting-scenario", choices=("startup", "updates"), default=os.environ.get("ARTHUR_GREETING_SCENARIO", "startup"))
     parser.add_argument("--interval-seconds", type=int, default=30)
     parser.add_argument("--stale-heartbeat-seconds", type=int, default=180)
+    parser.add_argument("--stale-worker-heartbeat-seconds", type=int, default=300)
     parser.add_argument("--stale-prompt-seconds", type=int, default=300)
     parser.add_argument("--browser-idle-minutes", type=int, default=30)
     parser.add_argument("--once", action="store_true")
@@ -306,6 +373,7 @@ def main() -> int:
     while True:
         ensure_automation_ownership()
         ensure_bridge(args.mic_device, args.tts, args.stale_heartbeat_seconds, args.threshold, args.greeting_scenario)
+        ensure_prompt_worker(args.stale_worker_heartbeat_seconds)
         if time.monotonic() - last_watchdog > 2 * 60:
             run_queue_watchdog()
             last_watchdog = time.monotonic()

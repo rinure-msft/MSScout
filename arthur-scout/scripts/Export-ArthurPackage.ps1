@@ -17,6 +17,7 @@ $RequiredSourceFiles = @(
     'arthur_config.py',
     'arthur_voice_bridge.py',
     'arthur_supervisor.py',
+    'arthur_prompt_worker.py',
     'arthur_queue_watchdog.py',
     'arthur_cleanup_chats.py',
     'arthur_cleanup_recordings.py',
@@ -179,8 +180,8 @@ function Write-Templates {
 [
   {
     "name": "Arthur Copilot prompt responder",
-    "description": "Processes Arthur voice prompts in this Scout window, writes responses to Arthur's response queue, and marks prompts completed.",
-    "enabled": true,
+    "description": "Manual fallback for processing Arthur voice prompts in Scout when the local prompt worker blocks or escalates a task.",
+    "enabled": false,
     "triggerType": "schedule",
     "schedule": {
       "kind": "interval",
@@ -191,7 +192,7 @@ function Write-Templates {
       {
         "id": "1",
         "label": "Main",
-        "prompt": "Check <SCRATCHPAD_PATH>\\arthur_prompt_queue.jsonl for the oldest runnable pending entry. Claim it, refresh heartbeat metadata while running, execute the prompt using normal Scout safety/privacy rules, append a response to arthur_prompt_responses.jsonl, and mark the queue entry completed, failed, or blocked. Do not leave claimed/running entries stale. Close Playwright after browser automation."
+        "prompt": "Manual fallback only. Run `python \"<SCRATCHPAD_PATH>\\arthur_queue_watchdog.py\" --claim-next --runner-id \"arthur-scout-fallback-<current timestamp>\"`, then process the claimed prompt using normal Scout safety/privacy rules. Append a response to arthur_prompt_responses.jsonl and mark the queue entry completed, failed, or blocked. Do not leave claimed/running entries stale. Close Playwright after browser automation. Always emit visible status; never stay quiet."
       }
     ]
   },
@@ -305,6 +306,7 @@ $required = @(
     'src\arthur_config.py',
     'src\arthur_voice_bridge.py',
     'src\arthur_supervisor.py',
+    'src\arthur_prompt_worker.py',
     'src\arthur_queue_watchdog.py',
     'src\arthur_cleanup_chats.py',
     'src\arthur_cleanup_recordings.py',
@@ -322,7 +324,7 @@ foreach ($relative in $required) {
     }
 }
 
-python -m py_compile (Join-Path $PackageRoot 'src\arthur_config.py') (Join-Path $PackageRoot 'src\arthur_voice_bridge.py') (Join-Path $PackageRoot 'src\arthur_supervisor.py') (Join-Path $PackageRoot 'src\arthur_queue_watchdog.py') (Join-Path $PackageRoot 'src\arthur_cleanup_chats.py') (Join-Path $PackageRoot 'src\arthur_cleanup_recordings.py') (Join-Path $PackageRoot 'src\arthur_voice_listener_log.py')
+python -m py_compile (Join-Path $PackageRoot 'src\arthur_config.py') (Join-Path $PackageRoot 'src\arthur_voice_bridge.py') (Join-Path $PackageRoot 'src\arthur_supervisor.py') (Join-Path $PackageRoot 'src\arthur_prompt_worker.py') (Join-Path $PackageRoot 'src\arthur_queue_watchdog.py') (Join-Path $PackageRoot 'src\arthur_cleanup_chats.py') (Join-Path $PackageRoot 'src\arthur_cleanup_recordings.py') (Join-Path $PackageRoot 'src\arthur_voice_listener_log.py')
 Get-ChildItem -LiteralPath (Join-Path $PackageRoot 'src') -Directory -Filter '__pycache__' -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Get-Content -LiteralPath (Join-Path $PackageRoot 'config\arthur.config.template.json') -Raw | ConvertFrom-Json | Out-Null
 Get-Content -LiteralPath (Join-Path $PackageRoot 'config\voice-commands.json') -Raw | ConvertFrom-Json | Out-Null
@@ -359,6 +361,7 @@ arthur-scout/
     arthur_config.py
     arthur_voice_bridge.py
     arthur_supervisor.py
+    arthur_prompt_worker.py
     arthur_queue_watchdog.py
     arthur_cleanup_chats.py
     arthur_cleanup_recordings.py
@@ -535,6 +538,7 @@ $expected = @(
     'src\arthur_config.py',
     'src\arthur_voice_bridge.py',
     'src\arthur_supervisor.py',
+    'src\arthur_prompt_worker.py',
     'src\arthur_queue_watchdog.py',
     'src\arthur_cleanup_chats.py',
     'src\arthur_cleanup_recordings.py',
