@@ -10,6 +10,7 @@ $required = @(
     'src\arthur_supervisor.py',
     'src\arthur_prompt_worker.py',
     'src\arthur_email_handoff.py',
+    'src\arthur_scout_handoff.py',
     'src\arthur_queue_watchdog.py',
     'src\arthur_cleanup_chats.py',
     'src\arthur_cleanup_recordings.py',
@@ -27,7 +28,7 @@ foreach ($relative in $required) {
     }
 }
 
-python -m py_compile (Join-Path $PackageRoot 'src\arthur_config.py') (Join-Path $PackageRoot 'src\arthur_voice_bridge.py') (Join-Path $PackageRoot 'src\arthur_supervisor.py') (Join-Path $PackageRoot 'src\arthur_prompt_worker.py') (Join-Path $PackageRoot 'src\arthur_email_handoff.py') (Join-Path $PackageRoot 'src\arthur_queue_watchdog.py') (Join-Path $PackageRoot 'src\arthur_cleanup_chats.py') (Join-Path $PackageRoot 'src\arthur_cleanup_recordings.py') (Join-Path $PackageRoot 'src\arthur_voice_listener_log.py')
+python -m py_compile (Join-Path $PackageRoot 'src\arthur_config.py') (Join-Path $PackageRoot 'src\arthur_voice_bridge.py') (Join-Path $PackageRoot 'src\arthur_supervisor.py') (Join-Path $PackageRoot 'src\arthur_prompt_worker.py') (Join-Path $PackageRoot 'src\arthur_email_handoff.py') (Join-Path $PackageRoot 'src\arthur_scout_handoff.py') (Join-Path $PackageRoot 'src\arthur_queue_watchdog.py') (Join-Path $PackageRoot 'src\arthur_cleanup_chats.py') (Join-Path $PackageRoot 'src\arthur_cleanup_recordings.py') (Join-Path $PackageRoot 'src\arthur_voice_listener_log.py')
 Get-ChildItem -LiteralPath (Join-Path $PackageRoot 'src') -Directory -Filter '__pycache__' -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Get-Content -LiteralPath (Join-Path $PackageRoot 'config\arthur.config.template.json') -Raw | ConvertFrom-Json | Out-Null
 Get-Content -LiteralPath (Join-Path $PackageRoot 'config\voice-commands.json') -Raw | ConvertFrom-Json | Out-Null

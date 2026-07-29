@@ -22,6 +22,7 @@ WORKER_LOG = SCRATCH / "arthur_prompt_worker.log"
 WORKER_HEARTBEAT_FILE = SCRATCH / "arthur_prompt_worker_heartbeat.json"
 ESCALATIONS_FILE = SCRATCH / "arthur_prompt_escalations.jsonl"
 EMAIL_HANDOFF_FILE = SCRATCH / "arthur_email_handoff.jsonl"
+SCOUT_HANDOFF_FILE = SCRATCH / "arthur_scout_handoff.jsonl"
 WORKIQ = get_path("runtime.workiqPath", str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd"))
 
 
@@ -232,10 +233,30 @@ def queue_scout_self_email_prompt_handoff(prompt_id: str, subject: str, source_p
     append_jsonl(EMAIL_HANDOFF_FILE, entry)
 
 
+def queue_scout_task_handoff(prompt_id: str, source_prompt: str, task_type: str, response_after_completion: str) -> None:
+    entry = {
+        "id": f"scout-{prompt_id}",
+        "prompt_id": prompt_id,
+        "created_at": iso_timestamp(),
+        "status": "pending",
+        "type": task_type,
+        "source": "arthur_prompt_worker",
+        "source_prompt": source_prompt,
+        "response_after_completion": response_after_completion,
+    }
+    append_jsonl(SCOUT_HANDOFF_FILE, entry)
+
+
 def handle_daily_briefing_split(prompt_id: str, prompt: str) -> HandlerResult:
     subject = f"Daily Briefing - {current_date_label()}"
     queue_scout_self_email_prompt_handoff(prompt_id, subject, prompt)
     return HandlerResult("completed", "Daily briefing queued for Scout email generation and delivery.")
+
+
+def handle_action_tracker_handoff(prompt_id: str, prompt: str) -> HandlerResult:
+    response = "Updated and sent to your Teams chat."
+    queue_scout_task_handoff(prompt_id, prompt, "action_tracker", response)
+    return HandlerResult("completed", "Action Tracker update queued for Scout processing.")
 
 
 def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None) -> HandlerResult:
@@ -245,9 +266,6 @@ def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None)
     if len(lowered) < 8 or lowered in {"open", "even", "start", "run"}:
         return HandlerResult("blocked", "I need more detail to complete that request.", "Prompt was incomplete.")
 
-    if any(term in lowered for term in ("playwright", "browser automation", "coreidentity", "review all entitlements", "pending access approvals", "approve entitlement")):
-        return HandlerResult("blocked", "Needs Scout/manual escalation: browser or approval automation is not supported by the local worker.", "Browser/risky approval flow.")
-
     if any(term in lowered for term in ("queue status", "arthur queue", "watchdog status")):
         return run_local_command([sys.executable, str(WATCHDOG_SCRIPT), "--status"], timeout=60)
 
@@ -255,7 +273,10 @@ def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None)
         return run_local_command([sys.executable, str(SCRATCH / "arthur_cleanup_chats.py"), "--max-age-hours", "4"], timeout=180)
 
     if any(term in lowered for term in ("action tracker", "azure devops", "ado work item", "work item")):
-        return HandlerResult("blocked", "Needs Scout/manual escalation: Azure DevOps Action Tracker changes are not supported by the local worker yet.", "ADO work requires Scout/API credentials.")
+        return handle_action_tracker_handoff(prompt_id, prompt)
+
+    if any(term in lowered for term in ("playwright", "browser automation", "coreidentity", "review all entitlements", "pending access approvals", "approve entitlement")):
+        return HandlerResult("blocked", "Needs Scout/manual escalation: browser or approval automation is not supported by the local worker.", "Browser/risky approval flow.")
 
     if "daily briefing" in lowered and "send" in lowered and "email" in lowered and has_only_self_email(prompt):
         return handle_daily_briefing_split(prompt_id, prompt)

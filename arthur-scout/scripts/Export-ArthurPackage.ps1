@@ -19,6 +19,7 @@ $RequiredSourceFiles = @(
     'arthur_supervisor.py',
     'arthur_prompt_worker.py',
     'arthur_email_handoff.py',
+    'arthur_scout_handoff.py',
     'arthur_queue_watchdog.py',
     'arthur_cleanup_chats.py',
     'arthur_cleanup_recordings.py',
@@ -216,6 +217,24 @@ function Write-Templates {
     ]
   },
   {
+    "name": "Arthur Scout Task Handoff Processor",
+    "description": "Processes Scout-required Arthur task handoffs such as Action Tracker updates and marks them complete.",
+    "enabled": true,
+    "triggerType": "schedule",
+    "schedule": {
+      "kind": "interval",
+      "naturalLanguage": "every 2 minutes",
+      "intervalMinutes": 2
+    },
+    "steps": [
+      {
+        "id": "1",
+        "label": "Main",
+        "prompt": "Run `python \"<SCRATCHPAD_PATH>\\arthur_scout_handoff.py\" --next`. It prints one JSON object. Always respond visibly; never stay quiet. If status is `no_pending`, respond exactly: `No Arthur Scout handoff pending.` If status is `pending` and type is `action_tracker`, execute the returned `source_prompt` using Scout tools. Use Azure DevOps project `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker`, create/update distinct work items tagged `ArthurActionTracker`, assign to Rin Ure unless explicitly different, and send a Teams self-message only to Rin.Ure@microsoft.com with the ADO links. Close Playwright if used. After successful execution, run `python \"<SCRATCHPAD_PATH>\\arthur_scout_handoff.py\" --mark-done \"<returned id>\" --response \"<response_after_completion or Done.>\"` and respond with that response. If execution fails, run `python \"<SCRATCHPAD_PATH>\\arthur_scout_handoff.py\" --mark-failed \"<returned id>\" --reason \"<failure reason>\"` and report the failure."
+      }
+    ]
+  },
+  {
     "name": "Arthur Copilot prompt responder Chat Cleanup",
     "description": "Archives Arthur Copilot prompt responder chat/history entries and local chat artifacts older than 4 hours while preserving active queue state.",
     "enabled": true,
@@ -327,6 +346,7 @@ $required = @(
     'src\arthur_supervisor.py',
     'src\arthur_prompt_worker.py',
     'src\arthur_email_handoff.py',
+    'src\arthur_scout_handoff.py',
     'src\arthur_queue_watchdog.py',
     'src\arthur_cleanup_chats.py',
     'src\arthur_cleanup_recordings.py',
@@ -344,7 +364,7 @@ foreach ($relative in $required) {
     }
 }
 
-python -m py_compile (Join-Path $PackageRoot 'src\arthur_config.py') (Join-Path $PackageRoot 'src\arthur_voice_bridge.py') (Join-Path $PackageRoot 'src\arthur_supervisor.py') (Join-Path $PackageRoot 'src\arthur_prompt_worker.py') (Join-Path $PackageRoot 'src\arthur_email_handoff.py') (Join-Path $PackageRoot 'src\arthur_queue_watchdog.py') (Join-Path $PackageRoot 'src\arthur_cleanup_chats.py') (Join-Path $PackageRoot 'src\arthur_cleanup_recordings.py') (Join-Path $PackageRoot 'src\arthur_voice_listener_log.py')
+python -m py_compile (Join-Path $PackageRoot 'src\arthur_config.py') (Join-Path $PackageRoot 'src\arthur_voice_bridge.py') (Join-Path $PackageRoot 'src\arthur_supervisor.py') (Join-Path $PackageRoot 'src\arthur_prompt_worker.py') (Join-Path $PackageRoot 'src\arthur_email_handoff.py') (Join-Path $PackageRoot 'src\arthur_scout_handoff.py') (Join-Path $PackageRoot 'src\arthur_queue_watchdog.py') (Join-Path $PackageRoot 'src\arthur_cleanup_chats.py') (Join-Path $PackageRoot 'src\arthur_cleanup_recordings.py') (Join-Path $PackageRoot 'src\arthur_voice_listener_log.py')
 Get-ChildItem -LiteralPath (Join-Path $PackageRoot 'src') -Directory -Filter '__pycache__' -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Get-Content -LiteralPath (Join-Path $PackageRoot 'config\arthur.config.template.json') -Raw | ConvertFrom-Json | Out-Null
 Get-Content -LiteralPath (Join-Path $PackageRoot 'config\voice-commands.json') -Raw | ConvertFrom-Json | Out-Null
@@ -383,6 +403,7 @@ arthur-scout/
     arthur_supervisor.py
     arthur_prompt_worker.py
     arthur_email_handoff.py
+    arthur_scout_handoff.py
     arthur_queue_watchdog.py
     arthur_cleanup_chats.py
     arthur_cleanup_recordings.py
@@ -561,6 +582,7 @@ $expected = @(
     'src\arthur_supervisor.py',
     'src\arthur_prompt_worker.py',
     'src\arthur_email_handoff.py',
+    'src\arthur_scout_handoff.py',
     'src\arthur_queue_watchdog.py',
     'src\arthur_cleanup_chats.py',
     'src\arthur_cleanup_recordings.py',
