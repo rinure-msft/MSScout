@@ -20,6 +20,7 @@ arthur-scout/
     arthur_voice_bridge.py
     arthur_supervisor.py
     arthur_prompt_worker.py
+    arthur_email_handoff.py
     arthur_queue_watchdog.py
     arthur_cleanup_chats.py
     arthur_cleanup_recordings.py

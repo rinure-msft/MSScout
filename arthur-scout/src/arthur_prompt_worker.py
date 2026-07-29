@@ -21,6 +21,7 @@ WATCHDOG_SCRIPT = SCRATCH / "arthur_queue_watchdog.py"
 WORKER_LOG = SCRATCH / "arthur_prompt_worker.log"
 WORKER_HEARTBEAT_FILE = SCRATCH / "arthur_prompt_worker_heartbeat.json"
 ESCALATIONS_FILE = SCRATCH / "arthur_prompt_escalations.jsonl"
+EMAIL_HANDOFF_FILE = SCRATCH / "arthur_email_handoff.jsonl"
 WORKIQ = get_path("runtime.workiqPath", str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd"))
 
 
@@ -145,7 +146,7 @@ def run_repair() -> None:
     )
 
 
-def run_workiq(prompt: str, timeout: int = 240) -> HandlerResult:
+def run_workiq(prompt: str, timeout: int = 240, max_chars: int = 900) -> HandlerResult:
     if not WORKIQ.exists():
         return HandlerResult("blocked", "Needs Scout/manual escalation: WorkIQ is not available locally.", "WorkIQ executable is missing.")
     command = [str(WORKIQ), "ask", "-q", prompt]
@@ -164,7 +165,7 @@ def run_workiq(prompt: str, timeout: int = 240) -> HandlerResult:
         return HandlerResult("blocked", "Needs Scout/manual escalation: WorkIQ EULA must be accepted.", "WorkIQ EULA is not accepted.")
     if result.returncode != 0:
         return HandlerResult("failed", f"WorkIQ returned an error: {output[:500]}", output[:1000])
-    return HandlerResult("completed", output[:900] if output else "Done.")
+    return HandlerResult("completed", output[:max_chars] if output else "Done.")
 
 
 def run_local_command(args: list[str], timeout: int = 180) -> HandlerResult:
@@ -181,7 +182,52 @@ def has_only_self_email(prompt: str) -> bool:
     return bool(configured) and (not emails or emails == {configured})
 
 
-def classify_and_execute(prompt: str, spoken_prompt: str | None) -> HandlerResult:
+def current_date_label() -> str:
+    return now().strftime("%B %-d, %Y") if os.name != "nt" else now().strftime("%B %#d, %Y")
+
+
+def strip_email_send_instruction(prompt: str) -> str:
+    patterns = [
+        r"\s+Send a Daily Briefing email addressed only to .*",
+        r"\s+Send the completed report as an email .*",
+        r"\s+After sending, .*",
+    ]
+    cleaned = prompt
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    return cleaned.strip()
+
+
+def queue_self_email_handoff(prompt_id: str, subject: str, body: str, source_prompt: str) -> None:
+    entry = {
+        "id": f"email-{prompt_id}",
+        "prompt_id": prompt_id,
+        "created_at": iso_timestamp(),
+        "status": "pending",
+        "type": "self_email",
+        "to": [self_email()],
+        "subject": subject,
+        "body": body,
+        "is_html": False,
+        "source": "arthur_prompt_worker",
+        "source_prompt": source_prompt,
+        "response_after_send": "Sent to your inbox.",
+    }
+    append_jsonl(EMAIL_HANDOFF_FILE, entry)
+
+
+def handle_daily_briefing_split(prompt_id: str, prompt: str) -> HandlerResult:
+    summary_prompt = strip_email_send_instruction(prompt)
+    summary_prompt += "\n\nReturn only the Daily Briefing body. Do not try to send email."
+    result = run_workiq(summary_prompt, timeout=300, max_chars=6000)
+    if result.status != "completed":
+        return result
+    subject = f"Daily Briefing - {current_date_label()}"
+    queue_self_email_handoff(prompt_id, subject, result.response, prompt)
+    return HandlerResult("completed", "Daily briefing generated and queued for email delivery.")
+
+
+def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None) -> HandlerResult:
     lowered = prompt.lower().strip()
     spoken = (spoken_prompt or "").strip()
 
@@ -199,6 +245,9 @@ def classify_and_execute(prompt: str, spoken_prompt: str | None) -> HandlerResul
 
     if any(term in lowered for term in ("action tracker", "azure devops", "ado work item", "work item")):
         return HandlerResult("blocked", "Needs Scout/manual escalation: Azure DevOps Action Tracker changes are not supported by the local worker yet.", "ADO work requires Scout/API credentials.")
+
+    if "daily briefing" in lowered and "send" in lowered and "email" in lowered and has_only_self_email(prompt):
+        return handle_daily_briefing_split(prompt_id, prompt)
 
     if "send" in lowered and "email" in lowered:
         if not has_only_self_email(prompt):
@@ -233,7 +282,7 @@ def process_once(runner_id: str) -> bool:
     write_heartbeat("running", prompt_id=prompt_id, spoken_prompt=spoken_prompt)
 
     try:
-        result = classify_and_execute(prompt, spoken_prompt)
+        result = classify_and_execute(prompt_id, prompt, spoken_prompt)
     except Exception as exc:  # Surface into queue state instead of crashing the worker loop.
         result = HandlerResult("failed", f"Local prompt worker failed: {type(exc).__name__}: {exc}", str(exc))
 
