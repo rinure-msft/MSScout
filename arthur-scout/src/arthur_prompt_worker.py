@@ -107,10 +107,18 @@ def update_entry(prompt_id: str, **fields: Any) -> dict[str, Any] | None:
 
 
 def append_response(prompt_id: str, response: str) -> None:
-    existing = {str(entry.get("id")) for entry in read_jsonl(RESPONSES_FILE)}
-    if prompt_id in existing:
-        return
-    append_jsonl(RESPONSES_FILE, {"id": prompt_id, "completed_at": iso_timestamp(), "response": response})
+    entries = read_jsonl(RESPONSES_FILE)
+    replacement = {"id": prompt_id, "completed_at": iso_timestamp(), "response": response}
+    replaced = False
+    for index, entry in enumerate(entries):
+        if str(entry.get("id")) == prompt_id:
+            entries[index] = replacement
+            replaced = True
+            break
+    if replaced:
+        write_jsonl(RESPONSES_FILE, entries)
+    else:
+        append_jsonl(RESPONSES_FILE, replacement)
 
 
 def claim_next(runner_id: str) -> dict[str, Any]:
@@ -140,8 +148,11 @@ def run_repair() -> None:
 def run_workiq(prompt: str, timeout: int = 240) -> HandlerResult:
     if not WORKIQ.exists():
         return HandlerResult("blocked", "Needs Scout/manual escalation: WorkIQ is not available locally.", "WorkIQ executable is missing.")
+    command = [str(WORKIQ), "ask", "-q", prompt]
+    if WORKIQ.suffix.lower() in {".cmd", ".bat"}:
+        command = ["cmd.exe", "/c", *command]
     result = subprocess.run(
-        [str(WORKIQ), "ask", "-q", prompt],
+        command,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -189,8 +200,14 @@ def classify_and_execute(prompt: str, spoken_prompt: str | None) -> HandlerResul
     if any(term in lowered for term in ("action tracker", "azure devops", "ado work item", "work item")):
         return HandlerResult("blocked", "Needs Scout/manual escalation: Azure DevOps Action Tracker changes are not supported by the local worker yet.", "ADO work requires Scout/API credentials.")
 
-    if "send" in lowered and "email" in lowered and not has_only_self_email(prompt):
-        return HandlerResult("blocked", "Needs Scout/manual escalation: outbound email recipient is not the configured self-email.", "Outbound email recipient is not self-only.")
+    if "send" in lowered and "email" in lowered:
+        if not has_only_self_email(prompt):
+            return HandlerResult("blocked", "Needs Scout/manual escalation: outbound email recipient is not the configured self-email.", "Outbound email recipient is not self-only.")
+        return HandlerResult(
+            "blocked",
+            "Needs Scout/manual escalation: local worker cannot send email directly.",
+            "Self-email send requires Scout/M365 tools rather than local WorkIQ.",
+        )
 
     if any(term in lowered for term in ("email", "teams", "calendar", "meeting", "brief", "summary", "inbox", "workiq")):
         return run_workiq(prompt)
