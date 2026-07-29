@@ -839,8 +839,10 @@ def h_workiq(text: str, speaker: Speaker, command: Command) -> bool:
             "Scope: Analyze all work signals during the outlined window: Emails involving me, my team, or key stakeholders. "
             "Tasks, mentions, approvals, and deadlines. Updates on active projects or recurring responsibilities. "
             "Decisions made in my absence. Work completed by others that affects me. New tasks, shifts in priorities, "
-            "risks, escalations, or open questions. Output Format: One section titled Catch Up, grouped by themes: "
-            "Decisions, Actions Needed, FYI Updates. Each bullet must include: Title; What happened: 1 sentence summary; "
+            "risks, escalations, or open questions. Output Format: Start with `Window of time:` and list the time window used. "
+            "Then add `Sources:` and list the Outlook folders and signal types reviewed. Then create one section titled `Catch Up`. "
+            "Under Catch Up, use bold subsection labels exactly: `Decisions`, `Actions Needed`, and `FYI Updates`. "
+            "Under each bold subsection, include indented bulleted items. Each bullet must include: Title; What happened: 1 sentence summary; "
             "Why it matters: 1 sentence impact on me/my team; Required action: next step or \"No action needed\"; "
             "Urgency: High / Medium / Low. Guidelines: Prioritize items requiring immediate action. De-dupe threads "
             "across emails. Synthesize insights; don't list raw activity. Assume I want full context fast with minimal noise.",
