@@ -56,12 +56,15 @@ def mark_done(handoff_id: str, response: str) -> int:
     entries = read_jsonl(HANDOFF_FILE)
     for entry in entries:
         if str(entry.get("id")) == handoff_id:
+            spoken_response = response
+            if not spoken_response.lower().startswith("arthur scout task handoff processor completed"):
+                spoken_response = f"Arthur Scout Task Handoff Processor completed. {spoken_response}"
             entry["status"] = "completed"
             entry["completed_at"] = iso_timestamp()
             write_jsonl(HANDOFF_FILE, entries)
             if entry.get("prompt_id"):
-                replace_response(str(entry["prompt_id"]), response)
-            print(json.dumps({"status": "completed", "id": handoff_id, "response": response}, ensure_ascii=False))
+                replace_response(str(entry["prompt_id"]), spoken_response)
+            print(json.dumps({"status": "completed", "id": handoff_id, "response": spoken_response}, ensure_ascii=False))
             return 0
     print(json.dumps({"status": "not_found", "id": handoff_id}, ensure_ascii=False))
     return 1
@@ -76,7 +79,7 @@ def mark_failed(handoff_id: str, reason: str) -> int:
             entry["failure_reason"] = reason
             write_jsonl(HANDOFF_FILE, entries)
             if entry.get("prompt_id"):
-                replace_response(str(entry["prompt_id"]), f"Scout handoff failed: {reason}")
+                replace_response(str(entry["prompt_id"]), f"Arthur Scout Task Handoff Processor failed: {reason}")
             print(json.dumps({"status": "failed", "id": handoff_id, "reason": reason}, ensure_ascii=False))
             return 0
     print(json.dumps({"status": "not_found", "id": handoff_id}, ensure_ascii=False))

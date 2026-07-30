@@ -92,12 +92,15 @@ def mark_sent(handoff_id: str, response: str) -> int:
     entries = read_jsonl(HANDOFF_FILE)
     for entry in entries:
         if str(entry.get("id")) == handoff_id:
+            spoken_response = response
+            if not spoken_response.lower().startswith("arthur email handoff sender completed"):
+                spoken_response = f"Arthur Email Handoff Sender completed. {spoken_response}"
             entry["status"] = "sent"
             entry["sent_at"] = iso_timestamp()
             write_jsonl(HANDOFF_FILE, entries)
             if entry.get("prompt_id"):
-                replace_response(str(entry["prompt_id"]), response)
-            print(json.dumps({"status": "sent", "id": handoff_id, "response": response}, ensure_ascii=False))
+                replace_response(str(entry["prompt_id"]), spoken_response)
+            print(json.dumps({"status": "sent", "id": handoff_id, "response": spoken_response}, ensure_ascii=False))
             return 0
     print(json.dumps({"status": "not_found", "id": handoff_id}, ensure_ascii=False))
     return 1
