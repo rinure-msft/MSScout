@@ -6,7 +6,7 @@ The exported command registry is stored in `config\voice-commands.json`. The sou
 
 # Arthur Voice Command Index
 
-Generated: 2026-07-29 04:04 PM MDT
+Generated: 2026-07-30 08:40 AM MDT
 
 | # | Command | What it does | Voice phrases |
 | ---: | --- | --- | --- |

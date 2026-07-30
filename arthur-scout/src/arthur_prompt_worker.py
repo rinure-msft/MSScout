@@ -187,6 +187,19 @@ def current_date_label() -> str:
     return now().strftime("%B %-d, %Y") if os.name != "nt" else now().strftime("%B %#d, %Y")
 
 
+def extract_subject(prompt: str, fallback: str) -> str:
+    patterns = [
+        r"subject\s+`([^`]+)`",
+        r"subject\s+\"([^\"]+)\"",
+        r"subject\s+'([^']+)'",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, prompt, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).replace("<today's date>", current_date_label()).replace("<current date from the timestamp protocol>", current_date_label())
+    return fallback
+
+
 def strip_email_send_instruction(prompt: str) -> str:
     patterns = [
         r"\s+Send a Daily Briefing email addressed only to .*",
@@ -233,6 +246,12 @@ def queue_scout_self_email_prompt_handoff(prompt_id: str, subject: str, source_p
     append_jsonl(EMAIL_HANDOFF_FILE, entry)
 
 
+def handle_self_email_prompt_handoff(prompt_id: str, prompt: str, fallback_subject: str = "Arthur Update") -> HandlerResult:
+    subject = extract_subject(prompt, f"{fallback_subject} - {current_date_label()}")
+    queue_scout_self_email_prompt_handoff(prompt_id, subject, prompt)
+    return HandlerResult("completed", "Self-email task queued for Scout generation and delivery.")
+
+
 def queue_scout_task_handoff(prompt_id: str, source_prompt: str, task_type: str, response_after_completion: str) -> None:
     entry = {
         "id": f"scout-{prompt_id}",
@@ -248,9 +267,7 @@ def queue_scout_task_handoff(prompt_id: str, source_prompt: str, task_type: str,
 
 
 def handle_daily_briefing_split(prompt_id: str, prompt: str) -> HandlerResult:
-    subject = f"Daily Briefing - {current_date_label()}"
-    queue_scout_self_email_prompt_handoff(prompt_id, subject, prompt)
-    return HandlerResult("completed", "Daily briefing queued for Scout email generation and delivery.")
+    return handle_self_email_prompt_handoff(prompt_id, prompt, "Daily Briefing")
 
 
 def handle_action_tracker_handoff(prompt_id: str, prompt: str) -> HandlerResult:
@@ -284,11 +301,7 @@ def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None)
     if "send" in lowered and "email" in lowered:
         if not has_only_self_email(prompt):
             return HandlerResult("blocked", "Needs Scout/manual escalation: outbound email recipient is not the configured self-email.", "Outbound email recipient is not self-only.")
-        return HandlerResult(
-            "blocked",
-            "Needs Scout/manual escalation: local worker cannot send email directly.",
-            "Self-email send requires Scout/M365 tools rather than local WorkIQ.",
-        )
+        return handle_self_email_prompt_handoff(prompt_id, prompt)
 
     if any(term in lowered for term in ("email", "teams", "calendar", "meeting", "brief", "summary", "inbox", "workiq")):
         return run_workiq(prompt)
