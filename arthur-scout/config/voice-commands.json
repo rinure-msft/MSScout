@@ -333,6 +333,8 @@
         "description":  "Summarize recent email.",
         "aliases":  [
                         "recent email",
+                        "review email",
+                        "review my email",
                         "unread email",
                         "latest email",
                         "summarize unread email",
@@ -373,6 +375,7 @@
         "description":  "Prepare for the next meeting.",
         "aliases":  [
                         "meeting prep",
+                        "prep for a meeting",
                         "prep my next meeting",
                         "prepare me for my next meeting"
                     ]

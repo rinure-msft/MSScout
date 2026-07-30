@@ -6,7 +6,7 @@ The exported command registry is stored in `config\voice-commands.json`. The sou
 
 # Arthur Voice Command Index
 
-Generated: 2026-07-30 10:19 AM MDT
+Generated: 2026-07-30 10:34 AM MDT
 
 | # | Command | What it does | Voice phrases |
 | ---: | --- | --- | --- |
@@ -43,10 +43,10 @@ Generated: 2026-07-30 10:19 AM MDT
 | 31 | repeat response | Repeat last response. | `say that again`, `repeat your response` |
 | 32 | identity | Say identity. | `who are you`, `what is your name` |
 | 33 | unread Teams | Summarize unread Teams. | `read unread teams`, `unread teams message`, `unread teams messages`, `summarize unread teams` |
-| 34 | recent email | Summarize recent email. | `recent email`, `unread email`, `latest email`, `summarize unread email`, `email summary` |
+| 34 | recent email | Summarize recent email. | `recent email`, `review email`, `review my email`, `unread email`, `latest email`, `summarize unread email`, `email summary` |
 | 35 | missed meeting summary | Email summaries and actions from missed recorded/transcribed meetings. | `missed meeting summary`, `summarize missed meetings`, `review missed meetings`, `missed recorded meetings`, `summarize meetings i missed`, `review meetings i missed`, `meeting summaries i missed`, `catch me up on missed meetings` |
 | 36 | meeting summary recap | Email summaries and actions from attended recorded/transcribed meetings. | `meeting summary recap`, `meetings attended summary`, `attended meeting summary`, `summarize meetings i attended`, `review meetings i attended`, `summarize attended meetings`, `review attended meetings`, `recap meetings i attended`, `meeting recap` |
-| 37 | meeting prep | Prepare for the next meeting. | `meeting prep`, `prep my next meeting`, `prepare me for my next meeting` |
+| 37 | meeting prep | Prepare for the next meeting. | `meeting prep`, `prep for a meeting`, `prep my next meeting`, `prepare me for my next meeting` |
 | 38 | next meeting | Read next meeting. | `next meeting`, `what is my next meeting` |
 | 39 | calendar summary | Summarize today's calendar. | `calendar summary`, `today's calendar`, `today calendar`, `my calendar`, `summarize my calendar` |
 | 40 | update Action Tracker with new items | Add new action items to Arthur's Action Tracker. | `update action tracker with new items`, `add new items to action tracker`, `update action tracker`, `update my action tracker`, `refresh action tracker`, `refresh my action tracker`, `date action tracker`, `add action tracker items`, `new action items` |

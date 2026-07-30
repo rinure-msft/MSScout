@@ -815,7 +815,10 @@ def h_workiq(text: str, speaker: Speaker, command: Command) -> bool:
         "recent_email": (
             "Checking recent email.",
             email_scope
-            + "Summarize my three newest unread or recent emails. Include sender, subject, and a one sentence preview. Do not include sensitive details beyond what is necessary.",
+            + "Create a concise Recent Email Summary. Review unread or recent emails from the configured priority folders only. "
+            "Summarize the top 5 items that may need awareness or action. Output format: `Window of time:`, `Sources:`, "
+            "then `Recent Email Summary` with indented bullets. Each bullet must include `Sender:`, `Subject:`, `Summary:`, "
+            "`Required Action:`, and `Urgency:`. Keep each item brief and do not include sensitive details beyond what is necessary.",
         ),
         "next_meeting": (
             "Checking your next meeting.",
@@ -852,7 +855,9 @@ def h_workiq(text: str, speaker: Speaker, command: Command) -> bool:
         "meeting_prep": (
             "Checking meeting prep.",
             email_scope
-            + "Look at my next calendar meeting and summarize what I should know to prepare. Include title, time, attendees if available, and any recent related email or Teams context. Keep it brief.",
+            + "Create a concise Meeting Prep Summary for my next calendar meeting. Include meeting title, time, attendees if available, "
+            "objective/context, recent related email or Teams context, likely decisions or asks, prep notes, and recommended questions. "
+            "Output format: `Window of time:`, `Sources:`, then `Meeting Prep Summary` with indented bullets. Keep it brief and action-oriented.",
         ),
     }
     intro, prompt = prompts[command.handler]
@@ -868,6 +873,24 @@ def h_workiq(text: str, speaker: Speaker, command: Command) -> bool:
             "After sending, respond to Arthur with exactly: Sent to your inbox."
         )
         speak(speaker, "I am creating and sending your Daily Briefing email.")
+        return True
+    if command.handler == "recent_email":
+        enqueue_prompt(
+            prompt
+            + " Send the completed Recent Email Summary as an email addressed only to Rin.Ure@microsoft.com with subject "
+            "`Recent Email Summary - <today's date>`. Rin has explicitly authorized automatic sending of this summary to himself because he is the only recipient. "
+            "Do not send if there are any recipients other than Rin.Ure@microsoft.com. After sending, respond to Arthur with exactly: Sent to your inbox."
+        )
+        speak(speaker, "I am creating and sending your recent email summary.")
+        return True
+    if command.handler == "meeting_prep":
+        enqueue_prompt(
+            prompt
+            + " Send the completed Meeting Prep Summary as an email addressed only to Rin.Ure@microsoft.com with subject "
+            "`Meeting Prep - <next meeting title or today's date>`. Rin has explicitly authorized automatic sending of this meeting prep to himself because he is the only recipient. "
+            "Do not send if there are any recipients other than Rin.Ure@microsoft.com. After sending, respond to Arthur with exactly: Sent to your inbox."
+        )
+        speak(speaker, "I am creating and sending your meeting prep summary.")
         return True
     speak(speaker, run_workiq(prompt))
     return True
@@ -1333,7 +1356,7 @@ COMMANDS = [
     Command("repeat response", ("say that again", "repeat your response"), "repeat_response", "Repeat last response."),
     Command("identity", ("who are you", "what is your name"), "identity", "Say identity."),
     Command("unread Teams", ("read unread teams", "unread teams message", "unread teams messages", "summarize unread teams"), "unread_teams", "Summarize unread Teams."),
-    Command("recent email", ("recent email", "unread email", "latest email", "summarize unread email", "email summary"), "recent_email", "Summarize recent email."),
+    Command("recent email", ("recent email", "review email", "review my email", "unread email", "latest email", "summarize unread email", "email summary"), "recent_email", "Summarize recent email."),
     Command(
         "missed meeting summary",
         (
@@ -1365,7 +1388,7 @@ COMMANDS = [
         "meeting_summary_recap",
         "Email summaries and actions from attended recorded/transcribed meetings.",
     ),
-    Command("meeting prep", ("meeting prep", "prep my next meeting", "prepare me for my next meeting"), "meeting_prep", "Prepare for the next meeting."),
+    Command("meeting prep", ("meeting prep", "prep for a meeting", "prep my next meeting", "prepare me for my next meeting"), "meeting_prep", "Prepare for the next meeting."),
     Command("next meeting", ("next meeting", "what is my next meeting"), "next_meeting", "Read next meeting."),
     Command("calendar summary", ("calendar summary", "today's calendar", "today calendar", "my calendar", "summarize my calendar"), "calendar_summary", "Summarize today's calendar."),
     Command(
