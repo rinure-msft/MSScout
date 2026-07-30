@@ -276,6 +276,12 @@ def handle_action_tracker_handoff(prompt_id: str, prompt: str) -> HandlerResult:
     return HandlerResult("completed", "Action Tracker update queued for Scout processing.")
 
 
+def handle_scout_task_handoff(prompt_id: str, prompt: str, task_type: str = "generic_scout_task") -> HandlerResult:
+    response = "Arthur Scout Task Handoff Processor completed the request."
+    queue_scout_task_handoff(prompt_id, prompt, task_type, response)
+    return HandlerResult("completed", "Task queued for Scout processing.")
+
+
 def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None) -> HandlerResult:
     lowered = prompt.lower().strip()
     spoken = (spoken_prompt or "").strip()
@@ -293,7 +299,7 @@ def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None)
         return handle_action_tracker_handoff(prompt_id, prompt)
 
     if any(term in lowered for term in ("playwright", "browser automation", "coreidentity", "review all entitlements", "pending access approvals", "approve entitlement")):
-        return HandlerResult("blocked", "Needs Scout/manual escalation: browser or approval automation is not supported by the local worker.", "Browser/risky approval flow.")
+        return handle_scout_task_handoff(prompt_id, prompt, "browser_or_approval")
 
     if "daily briefing" in lowered and "send" in lowered and "email" in lowered and has_only_self_email(prompt):
         return handle_daily_briefing_split(prompt_id, prompt)
@@ -306,8 +312,8 @@ def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None)
     if any(term in lowered for term in ("email", "teams", "calendar", "meeting", "brief", "summary", "inbox", "workiq")):
         return run_workiq(prompt)
 
-    append_jsonl(ESCALATIONS_FILE, {"id": None, "created_at": iso_timestamp(), "spoken_prompt": spoken, "prompt": prompt, "reason": "No local handler matched."})
-    return HandlerResult("blocked", "Needs Scout/manual escalation: no local handler matched this request.", "No local handler matched.")
+    append_jsonl(ESCALATIONS_FILE, {"id": None, "created_at": iso_timestamp(), "spoken_prompt": spoken, "prompt": prompt, "reason": "No local handler matched; routed to Scout."})
+    return handle_scout_task_handoff(prompt_id, prompt, "generic_scout_task")
 
 
 def process_once(runner_id: str) -> bool:
