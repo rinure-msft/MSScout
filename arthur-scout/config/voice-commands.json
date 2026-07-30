@@ -76,6 +76,20 @@
                     ]
     },
     {
+        "name":  "Bi-weekly Incident Review",
+        "description":  "Review the Fraud Ops Major Incidents bi-weekly review document and email the review.",
+        "aliases":  [
+                        "bi-weekly incident review",
+                        "biweekly incident review",
+                        "review bi-weekly incident review",
+                        "review biweekly incident review",
+                        "fraud ops major incidents bi-weekly review",
+                        "fraud ops major incidents biweekly review",
+                        "review fraud ops major incidents",
+                        "major incidents review"
+                    ]
+    },
+    {
         "name":  "Coreidentity entitlement approvals",
         "description":  "Approve eligible Coreidentity entitlements and email an approval report.",
         "aliases":  [

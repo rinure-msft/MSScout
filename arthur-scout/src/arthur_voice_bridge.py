@@ -1006,6 +1006,34 @@ def h_fast_mbr_review(text: str, speaker: Speaker, command: Command) -> bool:
     return True
 
 
+def h_biweekly_incident_review(text: str, speaker: Speaker, command: Command) -> bool:
+    enqueue_prompt(
+        "Find and review the bi-weekly incident review document shared within the Teams meeting titled "
+        "`Fraud Ops Major Incidents Bi-weekly Review`. Use the Teams meeting, meeting chat, shared files, "
+        "attachments, links, and related calendar artifacts as the authoritative source for the document. "
+        "Prefer the latest shared bi-weekly incident review document by meeting date, document title, header, "
+        "or last shared/modified timestamp. Before reviewing, verify and state the meeting date and source document "
+        "being used in the email. If the current/latest bi-weekly incident review document is inaccessible, send an "
+        "email that clearly states it was inaccessible and do not silently substitute an older document. "
+        "Inspect the document content and comments for Fraud Ops review items, asks, decisions, risks, open questions, "
+        "and actions. Focus specifically on anything assigned to or mentioning Fraud Ops, Rin, Rin's team, FVO, fraud, "
+        "vetting, investigations, partner risk, operational metrics, incidents, escalations, mitigations, or related responsibilities. "
+        "Compile the review into a formatted email addressed on the To line only to Rin.Ure@microsoft.com with subject "
+        "`Bi-weekly Incident Review - Fraud Ops Major Incidents`. Rin has explicitly authorized automatic sending of this "
+        "review email to himself because he is the only recipient. Do not send if there are any recipients other than "
+        "Rin.Ure@microsoft.com. Use this exact email body format, matching the FAST MBR review command: "
+        "`Source Document Reviewed` with document title, meeting date, last-modified/shared timestamp, and source link; "
+        "`Fraud Ops Review Items`; `Asks / Actions`; `Risks or Escalations`; and `Open Questions`. "
+        "For every item include: section/comment title, what changed or was asked, owner if known, recommended next action, "
+        "urgency, and a link back to the relevant section/comment in the document. If an exact section/comment deep link is "
+        "not available, include the document link and the section heading/comment text needed to find it quickly. "
+        "Send the email after the review is complete; do not leave it as a draft. If sending fails, do not say it was sent; "
+        "report the failure reason to Arthur. After sending, respond to Arthur with exactly: Sent to your inbox."
+    )
+    speak(speaker, "I am reviewing the bi-weekly incident review document and sending you the review email.")
+    return True
+
+
 def h_coreidentity_entitlement_approvals(text: str, speaker: Speaker, command: Command) -> bool:
     enqueue_prompt(
         "Use Playwright/browser automation to open the Coreidentity Pending Access Approvals page at "
@@ -1220,6 +1248,7 @@ HANDLERS = {
     "missed_meeting_summary": h_missed_meeting_summary,
     "meeting_summary_recap": h_meeting_summary_recap,
     "fast_mbr_review": h_fast_mbr_review,
+    "biweekly_incident_review": h_biweekly_incident_review,
     "coreidentity_entitlement_approvals": h_coreidentity_entitlement_approvals,
     "review_all_entitlements": h_review_all_entitlements,
     "evening_inbox_brief": h_evening_inbox_brief,
@@ -1285,6 +1314,21 @@ COMMANDS = [
         ),
         "fast_mbr_review",
         "Draft a Fraud Ops review email from the FAST Cross Company Partnership MBR document.",
+    ),
+    Command(
+        "Bi-weekly Incident Review",
+        (
+            "bi-weekly incident review",
+            "biweekly incident review",
+            "review bi-weekly incident review",
+            "review biweekly incident review",
+            "fraud ops major incidents bi-weekly review",
+            "fraud ops major incidents biweekly review",
+            "review fraud ops major incidents",
+            "major incidents review",
+        ),
+        "biweekly_incident_review",
+        "Review the Fraud Ops Major Incidents bi-weekly review document and email the review.",
     ),
     Command(
         "Coreidentity entitlement approvals",

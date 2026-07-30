@@ -6,7 +6,7 @@ The exported command registry is stored in `config\voice-commands.json`. The sou
 
 # Arthur Voice Command Index
 
-Generated: 2026-07-30 10:34 AM MDT
+Generated: 2026-07-30 10:54 AM MDT
 
 | # | Command | What it does | Voice phrases |
 | ---: | --- | --- | --- |
@@ -16,44 +16,45 @@ Generated: 2026-07-30 10:34 AM MDT
 | 4 | Voice Command Index | Send Arthur's indexed voice command list to the Microsoft Scout Teams chat. | `list voice commands`, `list your voice commands`, `show voice commands`, `show your voice commands`, `what are your voice commands`, `send voice command index`, `send voice commands`, `voice command index` |
 | 5 | prompt window | Queue a spoken prompt for this Scout window. | `ask copilot *`, `ask copilot to *`, `ask this window *`, `prompt copilot *`, `prompt copilot to *`, `send to copilot *`, `send to copilot to *`, `send to this window *`, `tell copilot *`, `tell copilot to *`, `have copilot *`, `have copilot do *`, `use copilot to *`, `execute prompt *`, `execute prompt to *` |
 | 6 | FAST MBR review | Draft a Fraud Ops review email from the FAST Cross Company Partnership MBR document. | `fast mbr review`, `review fast mbr`, `review fast partnership mbr`, `review fast cross company partnership mbr`, `review fast cross company partnership mbr document`, `fast cross company partnership mbr`, `fast cross company partnership mbr document`, `fast partnership review` |
-| 7 | Coreidentity entitlement approvals | Approve eligible Coreidentity entitlements and email an approval report. | `coreidentity entitlement approvals`, `approve coreidentity entitlements`, `review coreidentity entitlements`, `core identity entitlement approvals`, `approve core identity entitlements`, `review core identity entitlements`, `pending access approvals`, `review pending access approvals`, `approve pending access approvals` |
-| 8 | Review All Entitlements | Review all entitlement approval portals, approve eligible requests, and email a report. | `review all entitlements`, `approve all entitlements`, `review all entitlement approvals`, `approve all entitlement approvals`, `review entitlement portals`, `approve entitlement portals`, `review all access approvals`, `approve all access approvals` |
-| 9 | evening inbox brief | Create an executive evening inbox brief from priority folders. | `evening inbox brief`, `inbox brief`, `evening email brief`, `create evening inbox brief`, `summarize my inbox`, `summarize my evening inbox`, `what did i accomplish today`, `tomorrow priorities` |
-| 10 | how are you | Respond conversationally. | `how are you`, `how's it going`, `how is it going` |
-| 11 | hello | Greet Rin. | `hello`, `hi`, `hey`, `good morning`, `good afternoon`, `good evening` |
-| 12 | thanks | Acknowledge thanks. | `thank you`, `thanks` |
-| 13 | open calculator | Open Calculator. | `calculator`, `calc`, `open calculator` |
-| 14 | open command prompt | Open Command Prompt. | `command prompt`, `cmd`, `open command prompt` |
-| 15 | open powershell | Open PowerShell. | `powershell`, `open powershell` |
-| 16 | open notepad | Open Notepad. | `notepad`, `note pad`, `open notepad`, `open note pad` |
-| 17 | close browser | Close the browser Arthur opened. | `close browser`, `close edge`, `close the browser`, `close the browser you opened` |
-| 18 | open browser | Open browser. | `browser`, `edge`, `open browser`, `open edge` |
-| 19 | open Copilot | Open Copilot. | `open copilot`, `copilot` |
-| 20 | search web | Search the web. | `search for *`, `search the web for *`, `look up *`, `bing *` |
-| 21 | open scratchpad | Open Scratchpad. | `open scratchpad` |
-| 22 | open documents | Open Documents. | `open documents` |
-| 23 | open downloads | Open Downloads. | `open downloads` |
-| 24 | take note | Append a note. | `take a note *`, `make a note *`, `remember this *`, `note this *` |
-| 25 | read notes | Read recent notes. | `read notes`, `read my notes` |
-| 26 | time | Tell current time. | `time`, `what time is it` |
-| 27 | date | Tell current date. | `date`, `today`, `what day is it` |
-| 28 | list microphones | List input devices. | `list microphone`, `list microphones`, `audio devices` |
-| 29 | status | Report bridge status. | `status`, `are you listening` |
-| 30 | repeat heard | Repeat last heard command. | `repeat`, `what did you hear` |
-| 31 | repeat response | Repeat last response. | `say that again`, `repeat your response` |
-| 32 | identity | Say identity. | `who are you`, `what is your name` |
-| 33 | unread Teams | Summarize unread Teams. | `read unread teams`, `unread teams message`, `unread teams messages`, `summarize unread teams` |
-| 34 | recent email | Summarize recent email. | `recent email`, `review email`, `review my email`, `unread email`, `latest email`, `summarize unread email`, `email summary` |
-| 35 | missed meeting summary | Email summaries and actions from missed recorded/transcribed meetings. | `missed meeting summary`, `summarize missed meetings`, `review missed meetings`, `missed recorded meetings`, `summarize meetings i missed`, `review meetings i missed`, `meeting summaries i missed`, `catch me up on missed meetings` |
-| 36 | meeting summary recap | Email summaries and actions from attended recorded/transcribed meetings. | `meeting summary recap`, `meetings attended summary`, `attended meeting summary`, `summarize meetings i attended`, `review meetings i attended`, `summarize attended meetings`, `review attended meetings`, `recap meetings i attended`, `meeting recap` |
-| 37 | meeting prep | Prepare for the next meeting. | `meeting prep`, `prep for a meeting`, `prep my next meeting`, `prepare me for my next meeting` |
-| 38 | next meeting | Read next meeting. | `next meeting`, `what is my next meeting` |
-| 39 | calendar summary | Summarize today's calendar. | `calendar summary`, `today's calendar`, `today calendar`, `my calendar`, `summarize my calendar` |
-| 40 | update Action Tracker with new items | Add new action items to Arthur's Action Tracker. | `update action tracker with new items`, `add new items to action tracker`, `update action tracker`, `update my action tracker`, `refresh action tracker`, `refresh my action tracker`, `date action tracker`, `add action tracker items`, `new action items` |
-| 41 | update completed Action Tracker items | Mark completed items in Arthur's Action Tracker. | `update completed action tracker items`, `mark action tracker items complete`, `mark action items complete`, `complete action tracker items`, `clear completed action items` |
-| 42 | review completed Action Tracker tasks | Review completed tasks in Arthur's Action Tracker. | `review completed action tracker tasks`, `review completed action items`, `show completed action tracker items`, `show completed action items`, `what did i complete` |
-| 43 | Arthur's Action Tracker | Create Arthur's Action Tracker from top action items. | `what needs my attention`, `action tracker`, `create action tracker`, `build action tracker`, `prioritize my work` |
-| 44 | daily briefing task list | Create and email an Excel task list from the Daily Briefing. | `daily briefing task list`, `create daily briefing task list`, `daily briefing action list`, `create daily briefing action list`, `briefing task list`, `create briefing task list`, `turn daily briefing into tasks` |
-| 45 | daily briefing | Summarize workday priorities. | `daily briefing`, `work briefing`, `brief me` |
-| 46 | daily tasks | Create a check-off task table from the daily briefing. | `summarize daily tasks`, `daily task table`, `create daily task table` |
+| 7 | Bi-weekly Incident Review | Review the Fraud Ops Major Incidents bi-weekly review document and email the review. | `bi-weekly incident review`, `biweekly incident review`, `review bi-weekly incident review`, `review biweekly incident review`, `fraud ops major incidents bi-weekly review`, `fraud ops major incidents biweekly review`, `review fraud ops major incidents`, `major incidents review` |
+| 8 | Coreidentity entitlement approvals | Approve eligible Coreidentity entitlements and email an approval report. | `coreidentity entitlement approvals`, `approve coreidentity entitlements`, `review coreidentity entitlements`, `core identity entitlement approvals`, `approve core identity entitlements`, `review core identity entitlements`, `pending access approvals`, `review pending access approvals`, `approve pending access approvals` |
+| 9 | Review All Entitlements | Review all entitlement approval portals, approve eligible requests, and email a report. | `review all entitlements`, `approve all entitlements`, `review all entitlement approvals`, `approve all entitlement approvals`, `review entitlement portals`, `approve entitlement portals`, `review all access approvals`, `approve all access approvals` |
+| 10 | evening inbox brief | Create an executive evening inbox brief from priority folders. | `evening inbox brief`, `inbox brief`, `evening email brief`, `create evening inbox brief`, `summarize my inbox`, `summarize my evening inbox`, `what did i accomplish today`, `tomorrow priorities` |
+| 11 | how are you | Respond conversationally. | `how are you`, `how's it going`, `how is it going` |
+| 12 | hello | Greet Rin. | `hello`, `hi`, `hey`, `good morning`, `good afternoon`, `good evening` |
+| 13 | thanks | Acknowledge thanks. | `thank you`, `thanks` |
+| 14 | open calculator | Open Calculator. | `calculator`, `calc`, `open calculator` |
+| 15 | open command prompt | Open Command Prompt. | `command prompt`, `cmd`, `open command prompt` |
+| 16 | open powershell | Open PowerShell. | `powershell`, `open powershell` |
+| 17 | open notepad | Open Notepad. | `notepad`, `note pad`, `open notepad`, `open note pad` |
+| 18 | close browser | Close the browser Arthur opened. | `close browser`, `close edge`, `close the browser`, `close the browser you opened` |
+| 19 | open browser | Open browser. | `browser`, `edge`, `open browser`, `open edge` |
+| 20 | open Copilot | Open Copilot. | `open copilot`, `copilot` |
+| 21 | search web | Search the web. | `search for *`, `search the web for *`, `look up *`, `bing *` |
+| 22 | open scratchpad | Open Scratchpad. | `open scratchpad` |
+| 23 | open documents | Open Documents. | `open documents` |
+| 24 | open downloads | Open Downloads. | `open downloads` |
+| 25 | take note | Append a note. | `take a note *`, `make a note *`, `remember this *`, `note this *` |
+| 26 | read notes | Read recent notes. | `read notes`, `read my notes` |
+| 27 | time | Tell current time. | `time`, `what time is it` |
+| 28 | date | Tell current date. | `date`, `today`, `what day is it` |
+| 29 | list microphones | List input devices. | `list microphone`, `list microphones`, `audio devices` |
+| 30 | status | Report bridge status. | `status`, `are you listening` |
+| 31 | repeat heard | Repeat last heard command. | `repeat`, `what did you hear` |
+| 32 | repeat response | Repeat last response. | `say that again`, `repeat your response` |
+| 33 | identity | Say identity. | `who are you`, `what is your name` |
+| 34 | unread Teams | Summarize unread Teams. | `read unread teams`, `unread teams message`, `unread teams messages`, `summarize unread teams` |
+| 35 | recent email | Summarize recent email. | `recent email`, `review email`, `review my email`, `unread email`, `latest email`, `summarize unread email`, `email summary` |
+| 36 | missed meeting summary | Email summaries and actions from missed recorded/transcribed meetings. | `missed meeting summary`, `summarize missed meetings`, `review missed meetings`, `missed recorded meetings`, `summarize meetings i missed`, `review meetings i missed`, `meeting summaries i missed`, `catch me up on missed meetings` |
+| 37 | meeting summary recap | Email summaries and actions from attended recorded/transcribed meetings. | `meeting summary recap`, `meetings attended summary`, `attended meeting summary`, `summarize meetings i attended`, `review meetings i attended`, `summarize attended meetings`, `review attended meetings`, `recap meetings i attended`, `meeting recap` |
+| 38 | meeting prep | Prepare for the next meeting. | `meeting prep`, `prep for a meeting`, `prep my next meeting`, `prepare me for my next meeting` |
+| 39 | next meeting | Read next meeting. | `next meeting`, `what is my next meeting` |
+| 40 | calendar summary | Summarize today's calendar. | `calendar summary`, `today's calendar`, `today calendar`, `my calendar`, `summarize my calendar` |
+| 41 | update Action Tracker with new items | Add new action items to Arthur's Action Tracker. | `update action tracker with new items`, `add new items to action tracker`, `update action tracker`, `update my action tracker`, `refresh action tracker`, `refresh my action tracker`, `date action tracker`, `add action tracker items`, `new action items` |
+| 42 | update completed Action Tracker items | Mark completed items in Arthur's Action Tracker. | `update completed action tracker items`, `mark action tracker items complete`, `mark action items complete`, `complete action tracker items`, `clear completed action items` |
+| 43 | review completed Action Tracker tasks | Review completed tasks in Arthur's Action Tracker. | `review completed action tracker tasks`, `review completed action items`, `show completed action tracker items`, `show completed action items`, `what did i complete` |
+| 44 | Arthur's Action Tracker | Create Arthur's Action Tracker from top action items. | `what needs my attention`, `action tracker`, `create action tracker`, `build action tracker`, `prioritize my work` |
+| 45 | daily briefing task list | Create and email an Excel task list from the Daily Briefing. | `daily briefing task list`, `create daily briefing task list`, `daily briefing action list`, `create daily briefing action list`, `briefing task list`, `create briefing task list`, `turn daily briefing into tasks` |
+| 46 | daily briefing | Summarize workday priorities. | `daily briefing`, `work briefing`, `brief me` |
+| 47 | daily tasks | Create a check-off task table from the daily briefing. | `summarize daily tasks`, `daily task table`, `create daily task table` |
 
