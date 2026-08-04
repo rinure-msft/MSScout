@@ -67,6 +67,8 @@ jobs:
           $exportRoot = Join-Path $env:RUNNER_TEMP 'arthur-exported'
           New-Item -ItemType Directory -Path $liveSource -Force | Out-Null
           Copy-Item -LiteralPath 'arthur-scout/scripts/Start-Arthur.ps1' -Destination $liveSource -Force
+          Copy-Item -LiteralPath 'arthur-scout/scripts/Update-Arthur.ps1' -Destination $liveSource -Force
+          Copy-Item -LiteralPath 'arthur-scout/config/automations.template.json' -Destination (Join-Path $liveSource 'automations.template.json') -Force
           Copy-Item -Path 'arthur-scout/src/*.py' -Destination $liveSource -Force
           pwsh -NoProfile -File arthur-scout/scripts/Export-ArthurPackage.ps1 -SourceRoot $liveSource -OutputRoot $exportRoot
           pwsh -NoProfile -File (Join-Path $exportRoot 'arthur-scout/scripts/Test-Arthur.ps1') -PackageRoot (Join-Path $exportRoot 'arthur-scout')
