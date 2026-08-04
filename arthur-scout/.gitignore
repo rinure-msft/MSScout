@@ -12,6 +12,10 @@ __pycache__/
 
 # Local config generated from template
 arthur.config.json
+arthur.version.json
+arthur_preflight_status.json
+arthur_automation_sync_status.json
+arthur_status_dashboard.html
 
 # Office/export artifacts and scratch data
 *.xlsx

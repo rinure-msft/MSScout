@@ -128,15 +128,22 @@ def cleanup_media(min_age_minutes: int, dry_run: bool) -> int:
         for path in SCRATCH.glob(pattern):
             if not path.is_file():
                 continue
-            modified = dt.datetime.fromtimestamp(path.stat().st_mtime)
+            try:
+                modified = dt.datetime.fromtimestamp(path.stat().st_mtime)
+            except OSError as exc:
+                log(f"Skipped media file {path.name}; stat failed: {type(exc).__name__}: {exc}")
+                continue
             if modified > cutoff:
                 continue
             if dry_run:
                 log(f"Would delete {path.name}")
             else:
-                path.unlink()
-                deleted += 1
-                log(f"Deleted {path.name}")
+                try:
+                    path.unlink()
+                    deleted += 1
+                    log(f"Deleted {path.name}")
+                except OSError as exc:
+                    log(f"Skipped locked media file {path.name}: {type(exc).__name__}: {exc}")
     return deleted
 
 
@@ -146,18 +153,25 @@ def rotate_large_logs(max_log_kb: int, dry_run: bool) -> int:
     max_bytes = max_log_kb * 1024
     for pattern in ROTATE_PATTERNS:
         for path in SCRATCH.glob(pattern):
-            if not path.is_file() or path.stat().st_size <= max_bytes:
+            try:
+                if not path.is_file() or path.stat().st_size <= max_bytes:
+                    continue
+            except OSError as exc:
+                log(f"Skipped log {path.name}; stat failed: {type(exc).__name__}: {exc}")
                 continue
             stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
             archive = ARCHIVE_DIR / f"{path.stem}_{stamp}{path.suffix}"
             if dry_run:
                 log(f"Would rotate {path.name} to {archive.name}")
             else:
-                shutil.copy2(path, archive)
-                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-300:]
-                path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
-                rotated += 1
-                log(f"Rotated {path.name} to {archive.name}")
+                try:
+                    shutil.copy2(path, archive)
+                    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-300:]
+                    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+                    rotated += 1
+                    log(f"Rotated {path.name} to {archive.name}")
+                except OSError as exc:
+                    log(f"Skipped locked log {path.name}: {type(exc).__name__}: {exc}")
     return rotated
 
 

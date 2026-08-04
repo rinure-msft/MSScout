@@ -15,11 +15,16 @@ $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
 
 $RequiredSourceFiles = @(
     'arthur_config.py',
+    'arthur_automation_sync.py',
     'arthur_voice_bridge.py',
     'arthur_supervisor.py',
     'arthur_prompt_worker.py',
+    'arthur_preflight.py',
     'arthur_email_handoff.py',
     'arthur_scout_handoff.py',
+    'arthur_schedule_briefing.py',
+    'arthur_status_dashboard.py',
+    'arthur_version.py',
     'arthur_queue_watchdog.py',
     'arthur_cleanup_chats.py',
     'arthur_cleanup_recordings.py',
@@ -34,6 +39,10 @@ $RuntimeExcludePatterns = @(
     '*.jsonl',
     '*heartbeat*.json',
     '*state*.json',
+    'arthur.version.json',
+    'arthur_preflight_status.json',
+    'arthur_automation_sync_status.json',
+    'arthur_status_dashboard.html',
     'arthur_archive',
     'arthur_edge_profile',
     '__pycache__',
@@ -135,6 +144,7 @@ function Write-Templates {
 {
   "assistantName": "Arthur",
   "userDisplayName": "<YOUR_NAME>",
+  "userFirstName": "<YOUR_FIRST_NAME>",
   "timezone": "Mountain Standard Time",
   "voice": {
     "tts": "edge",
@@ -157,12 +167,16 @@ function Write-Templates {
   "azureDevOps": {
     "organization": "<ADO_ORGANIZATION>",
     "project": "<ADO_PROJECT>",
+    "url": "https://dev.azure.com/<ADO_ORGANIZATION>/<ADO_PROJECT>",
     "tag": "ArthurActionTracker",
     "defaultAssignee": "<YOUR_NAME>",
-    "defaultAssigneeEmail": "<YOUR_EMAIL>"
+    "defaultAssigneeEmail": "<YOUR_EMAIL>",
+    "defaultWorkItemType": "Task"
   },
   "runtime": {
     "scratchpadPath": "<MS_SCOUT_SCRATCHPAD_PATH>",
+    "workiqPath": "<WORKIQ_CMD_PATH>",
+    "automationFile": "<SCOUT_AUTOMATIONS_JSON_PATH>",
     "promptResponderAutomationId": "2w51kbs3mqra79xo",
     "cleanupChatArtifactsOlderThanHours": 4,
     "chatCleanupIntervalMinutes": 45,
@@ -230,7 +244,7 @@ function Write-Templates {
       {
         "id": "1",
         "label": "Main",
-        "prompt": "Run `python \"<SCRATCHPAD_PATH>\\arthur_scout_handoff.py\" --next`. It prints one JSON object. Always respond visibly; never stay quiet. If status is `no_pending`, respond exactly: `No Arthur Scout handoff pending.` If status is `pending`, inspect `type` and execute the returned `source_prompt` using Scout tools and normal safety/privacy rules. For `type` = `action_tracker`: use Azure DevOps project `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker`, create/update distinct work items tagged `ArthurActionTracker`, assign to Rin Ure unless explicitly different, and send an email only to Rin.Ure@microsoft.com with the ADO links. Do not send Teams messages for Action Tracker handoffs. Close Playwright if used. For `type` = `browser_or_approval`: use Playwright/browser automation if needed, follow the returned `source_prompt`, close Playwright after completion, and send any allowed self-email report only to Rin.Ure@microsoft.com. Do not send to any other recipient. For `type` = `generic_scout_task`: execute the returned `source_prompt` using available Scout tools. If outbound communication is requested, only proceed when the prompt is explicitly self-addressed to Rin.Ure@microsoft.com; otherwise mark failed with a clear reason. After successful execution, run `python \"<SCRATCHPAD_PATH>\\arthur_scout_handoff.py\" --mark-done \"<returned id>\" --response \"<response_after_completion or Done.>\"` and respond with that response. If execution fails, run `python \"<SCRATCHPAD_PATH>\\arthur_scout_handoff.py\" --mark-failed \"<returned id>\" --reason \"<failure reason>\"` and report the failure."
+        "prompt": "Run `python \"<SCRATCHPAD_PATH>\\arthur_scout_handoff.py\" --next`. It prints one JSON object. Always respond visibly; never stay quiet. If status is `no_pending`, respond exactly: `No Arthur Scout handoff pending.` If status is `pending`, inspect `type` and execute the returned `source_prompt` using Scout tools and normal safety/privacy rules. For `type` = `action_tracker`: use the Azure DevOps project named in the returned `source_prompt`, create/update distinct work items tagged `ArthurActionTracker`, assign to the configured assignee unless explicitly different, and send email only to the configured selfEmail recipient specified by the returned `source_prompt`. Do not send Teams messages for Action Tracker handoffs. Close Playwright if used. For `type` = `browser_or_approval`: use Playwright/browser automation if needed, follow the returned `source_prompt`, close Playwright after completion, and send any allowed self-email report only to the configured selfEmail recipient specified by the returned `source_prompt`. Do not send to any other recipient. For `type` = `generic_scout_task`: execute the returned `source_prompt` using available Scout tools. If outbound communication is requested, only proceed when the prompt is explicitly self-addressed to the configured selfEmail recipient; otherwise mark failed with a clear reason. After successful execution, run `python \"<SCRATCHPAD_PATH>\\arthur_scout_handoff.py\" --mark-done \"<returned id>\" --response \"<response_after_completion or Done.>\"` and respond with that response. If execution fails, run `python \"<SCRATCHPAD_PATH>\\arthur_scout_handoff.py\" --mark-failed \"<returned id>\" --reason \"<failure reason>\"` and report the failure."
       }
     ]
   },
@@ -266,7 +280,12 @@ function Write-Templates {
 '@
 
     Write-Utf8File -Path (Join-Path $PackageRoot 'config\arthur.config.template.json') -Content $configTemplate
-    Write-Utf8File -Path (Join-Path $PackageRoot 'config\automations.template.json') -Content $automationTemplate
+    $automationTemplatePath = Join-Path $SourceRoot 'automations.template.json'
+    if (Test-Path -LiteralPath $automationTemplatePath) {
+        Copy-Item -LiteralPath $automationTemplatePath -Destination (Join-Path $PackageRoot 'config\automations.template.json') -Force
+    } else {
+        Write-Utf8File -Path (Join-Path $PackageRoot 'config\automations.template.json') -Content $automationTemplate
+    }
 }
 
 function Write-InstallScripts {

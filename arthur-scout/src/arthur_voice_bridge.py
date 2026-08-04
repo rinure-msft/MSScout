@@ -2,6 +2,7 @@
 import asyncio
 from dataclasses import dataclass
 import datetime as dt
+import difflib
 import json
 import os
 import pathlib
@@ -39,11 +40,13 @@ SHUTDOWN_REQUEST_FILE = SCRATCH / "arthur_shutdown_request.json"
 BROWSER_STATE_FILE = SCRATCH / "arthur_browser_state.json"
 BROWSER_PROFILE_DIR = SCRATCH / "arthur_edge_profile"
 HEARTBEAT_FILE = SCRATCH / "arthur_voice_bridge_heartbeat.json"
+TTS_HEALTH_FILE = SCRATCH / "arthur_tts_health.json"
 WORKIQ = get_path("runtime.workiqPath", str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd"))
 EDGE_VOICE = str(get_config("voice.edgeVoice", "en-US-BrianNeural"))
 DEFAULT_TIMEZONE = str(get_config("timezone", "Mountain Standard Time"))
 MAX_SPEECH_CHUNK_CHARS = 260
 MAX_COMPLETION_SPEECH_CHARS = 280
+TTS_HEALTH_INTERVAL_SECONDS = 300
 MIN_TRANSCRIBE_RMS = float(get_config("microphone.minTranscribeRms", 120.0))
 MIN_TRANSCRIBE_PEAK = int(get_config("microphone.minTranscribePeak", 700))
 WINDOWS_TIMEZONE_ALIASES = {
@@ -54,6 +57,9 @@ LAST_HEARD = ""
 LAST_RESPONSE = ""
 PENDING_WAKE_UNTIL = 0.0
 CONFIGURED_MICROPHONE_DEVICE = "the configured microphone device"
+SMOKE_TEST_MODE = False
+SMOKE_TEST_ACTIONS: list[dict[str, str]] = []
+SELF_EMAIL_TOKEN = "<SELF_EMAIL>"
 
 
 @dataclass(frozen=True)
@@ -64,19 +70,99 @@ class Command:
     description: str
 
 
+@dataclass(frozen=True)
+class TranscriptionResult:
+    text: str
+    avg_logprob: float | None
+    no_speech_prob: float | None
+    compression_ratio: float | None
+    segment_count: int
+
+
+class SmokeTestSpeaker:
+    def __init__(self) -> None:
+        self.spoken: list[str] = []
+
+    def say(self, text: str) -> None:
+        self.spoken.append(text)
+
+
+def record_smoke_action(kind: str, detail: object) -> None:
+    if SMOKE_TEST_MODE:
+        SMOKE_TEST_ACTIONS.append({"kind": kind, "detail": str(detail)})
+
+
 class Speaker:
     def __init__(self, mode: str, edge_voice: str) -> None:
         self.mode = mode
         self.edge_voice = edge_voice
         self.pyttsx3_engine = pyttsx3.init()
         self.edge_count = 0
+        self.last_tts_health_check = 0.0
         self.lock = threading.Lock()
         if self.mode == "edge":
-            pygame.mixer.init()
+            self._recover_edge_tts("startup")
+            self.check_tts_health(force=True)
 
     async def _save_edge_tts(self, text: str, path: pathlib.Path) -> None:
         communicate = edge_tts.Communicate(text, self.edge_voice)
         await communicate.save(str(path))
+
+    def _write_tts_health(self, status: str, **extra: object) -> None:
+        payload = {
+            "status": status,
+            "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
+            "mode": self.mode,
+            "edge_voice": self.edge_voice,
+            **extra,
+        }
+        try:
+            write_json_atomic(TTS_HEALTH_FILE, payload)
+        except OSError as exc:
+            log(COMMAND_LOG, f"TTS health write failed: {type(exc).__name__}: {exc}")
+
+    def _recover_edge_tts(self, reason: str) -> None:
+        try:
+            pygame.mixer.music.stop()
+            pygame.mixer.music.unload()
+        except Exception:
+            pass
+        try:
+            pygame.mixer.quit()
+        except Exception:
+            pass
+        pygame.mixer.init()
+        self._write_tts_health("recovered", reason=reason)
+        log(COMMAND_LOG, f"Edge TTS recovery completed: {reason}")
+
+    def check_tts_health(self, force: bool = False) -> bool:
+        if self.mode != "edge":
+            self._write_tts_health("skipped", reason="TTS mode is not edge")
+            return True
+        current = time.monotonic()
+        if not force and current - self.last_tts_health_check < TTS_HEALTH_INTERVAL_SECONDS:
+            return True
+        self.last_tts_health_check = current
+        path = SCRATCH / "arthur_edge_tts_healthcheck.mp3"
+        try:
+            asyncio.run(asyncio.wait_for(self._save_edge_tts("TTS health check.", path), timeout=30))
+            sound = pygame.mixer.Sound(str(path))
+            length = sound.get_length()
+            del sound
+            if length <= 0:
+                raise RuntimeError("Edge TTS health check produced empty audio")
+            self._write_tts_health("healthy", audio_seconds=round(length, 2))
+            return True
+        except Exception as exc:
+            self._write_tts_health("unhealthy", error=f"{type(exc).__name__}: {exc}")
+            log(COMMAND_LOG, f"Edge TTS health check failed: {type(exc).__name__}: {exc}")
+            self._recover_edge_tts("health check failure")
+            return False
+        finally:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _speak_edge_chunk(self, chunk: str) -> bool:
         for attempt in range(2):
@@ -96,9 +182,11 @@ class Speaker:
                         pygame.mixer.music.stop()
                         raise TimeoutError(f"Edge TTS playback exceeded {playback_timeout:.1f}s")
                     time.sleep(0.05)
+                pygame.mixer.music.unload()
                 return True
             except Exception as exc:
                 log(COMMAND_LOG, f"Edge TTS chunk attempt {attempt + 1} failed: {type(exc).__name__}: {exc}")
+                self._recover_edge_tts(f"chunk attempt {attempt + 1} failure")
                 time.sleep(0.25)
         return False
 
@@ -106,16 +194,26 @@ class Speaker:
         with self.lock:
             text = sanitize_for_speech(text)
             print(f"Arthur: {text}", flush=True)
+            started = time.monotonic()
             if self.mode == "edge":
-                for chunk in split_for_speech(text):
+                self.check_tts_health()
+                chunks = split_for_speech(text)
+                spoken_chunks = 0
+                for chunk in chunks:
                     if not self._speak_edge_chunk(chunk):
                         log(COMMAND_LOG, "Edge TTS chunk failed after retries; skipped Windows voice fallback to avoid voice switching.")
+                    else:
+                        spoken_chunks += 1
+                duration = time.monotonic() - started
                 log(COMMAND_LOG, f"Spoke response using Edge TTS: {text[:120]}")
+                log(COMMAND_LOG, f"Speech completed: mode=edge chunks={spoken_chunks}/{len(chunks)} chars={len(text)} duration={duration:.1f}s")
                 return
 
             self.pyttsx3_engine.say(text)
             self.pyttsx3_engine.runAndWait()
+            duration = time.monotonic() - started
             log(COMMAND_LOG, f"Spoke response using Windows voice: {text[:120]}")
+            log(COMMAND_LOG, f"Speech completed: mode=windows chars={len(text)} duration={duration:.1f}s")
 
 
 def log(path: pathlib.Path, message: str) -> None:
@@ -144,15 +242,15 @@ def split_for_speech(text: str, limit: int = MAX_SPEECH_CHUNK_CHARS) -> list[str
 
 def sanitize_for_speech(text: str) -> str:
     replacements = {
-        "âœ…": "[completed]",
-        "ðŸ”": "[priority]",
-        "ðŸ””": "[priority]",
-        "ðŸ“…": "[invite]",
-        "â€”": "-",
-        "â€“": "-",
-        "â€™": "'",
-        "â€œ": '"',
-        "â€": '"',
+        "Ã¢Å“â€¦": "[completed]",
+        "Ã°Å¸â€Â": "[priority]",
+        "Ã°Å¸â€â€": "[priority]",
+        "Ã°Å¸â€œâ€¦": "[invite]",
+        "Ã¢â‚¬â€": "-",
+        "Ã¢â‚¬â€œ": "-",
+        "Ã¢â‚¬â„¢": "'",
+        "Ã¢â‚¬Å“": '"',
+        "Ã¢â‚¬Â": '"',
         "\u00a0": " ",
     }
     for old, new in replacements.items():
@@ -178,6 +276,41 @@ def concise_completion_for_speech(response: str) -> str:
             return first_sentence
         return "The item is complete. I kept the detailed links and notes out of the spoken response."
     return text
+
+
+def configured_self_email() -> str:
+    return self_email() or "<configured self email>"
+
+
+def response_needs_email(response: str) -> bool:
+    text = response.strip()
+    if not text:
+        return False
+    return (
+        len(text) > MAX_COMPLETION_SPEECH_CHARS
+        or "http://" in text.lower()
+        or "https://" in text.lower()
+        or bool(re.search(r"(^|\n)\s*\|.+\|", text))
+    )
+
+
+def email_details_and_speak(speaker: "Speaker", subject: str, body: str) -> None:
+    recipient = configured_self_email()
+    enqueue_prompt(
+        f"Send an email addressed only to {recipient} with subject `{subject}`. "
+        "Put the content below in the email body. Do not add any other To, CC, or BCC recipients. "
+        f"Do not send if there are any recipients other than {recipient}. "
+        "After sending, respond to Arthur with exactly: Sent to your inbox.\n\n"
+        f"{body}"
+    )
+    speak(speaker, "I sent the details to your inbox.")
+
+
+def speak_or_email_details(speaker: "Speaker", response: str, subject: str) -> None:
+    if response_needs_email(response):
+        email_details_and_speak(speaker, subject, response)
+        return
+    speak(speaker, response)
 
 
 def write_json_atomic(path: pathlib.Path, payload: dict) -> None:
@@ -216,6 +349,9 @@ def write_heartbeat(status: str, **extra: object) -> None:
 def speak(speaker: Speaker, text: str) -> None:
     global LAST_RESPONSE
     LAST_RESPONSE = text
+    if SMOKE_TEST_MODE:
+        speaker.say(text)
+        return
     write_heartbeat("speaking", preview=text[:120])
     speaker.say(text)
     write_heartbeat("listening")
@@ -337,12 +473,26 @@ def should_transcribe(audio: np.ndarray, threshold: float) -> bool:
     return rms >= min(MIN_TRANSCRIBE_RMS, threshold * 0.75) or peak >= MIN_TRANSCRIBE_PEAK
 
 
-def transcribe_audio(model: WhisperModel, path: pathlib.Path) -> str:
-    segments, _ = model.transcribe(str(path), beam_size=1, vad_filter=True)
-    return clean_transcript(" ".join(segment.text.strip() for segment in segments))
+def transcribe_audio(model: WhisperModel, path: pathlib.Path) -> TranscriptionResult:
+    segments_iter, _ = model.transcribe(str(path), beam_size=1, vad_filter=True)
+    segments = list(segments_iter)
+    text = clean_transcript(" ".join(segment.text.strip() for segment in segments))
+    avg_logprobs = [float(segment.avg_logprob) for segment in segments if getattr(segment, "avg_logprob", None) is not None]
+    no_speech_probs = [float(segment.no_speech_prob) for segment in segments if getattr(segment, "no_speech_prob", None) is not None]
+    compression_ratios = [float(segment.compression_ratio) for segment in segments if getattr(segment, "compression_ratio", None) is not None]
+    return TranscriptionResult(
+        text=text,
+        avg_logprob=(sum(avg_logprobs) / len(avg_logprobs)) if avg_logprobs else None,
+        no_speech_prob=max(no_speech_probs) if no_speech_probs else None,
+        compression_ratio=max(compression_ratios) if compression_ratios else None,
+        segment_count=len(segments),
+    )
 
 
 def open_process(command: list[str]) -> None:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("open_process", " ".join(command))
+        return
     subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -353,6 +503,9 @@ def strip_html(text: str) -> str:
 
 
 def run_workiq(question: str) -> str:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("workiq", question[:160])
+        return "Smoke test WorkIQ response."
     if not WORKIQ.exists():
         return "WorkIQ is not installed at the expected path."
     result = subprocess.run(
@@ -378,12 +531,18 @@ def email_folder_instruction() -> str:
 
 
 def take_note(note: str) -> None:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("take_note", note)
+        return
     timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with NOTES_FILE.open("a", encoding="utf-8") as f:
         f.write(f"[{timestamp}] {note}\n")
 
 
 def write_daily_tasks_table(content: str) -> None:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("write_daily_tasks_table", content[:160])
+        return
     timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     DAILY_TASKS_FILE.write_text(
         f"# Arthur Daily Tasks\n\nGenerated: {timestamp}\n\n{content.strip()}\n",
@@ -416,7 +575,11 @@ def expand_prompt(prompt: str) -> str:
 
 
 def enqueue_prompt(prompt: str) -> None:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("enqueue_prompt", prompt[:200])
+        return
     prompt_id = f"prompt-{dt.datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+    prompt = prompt.replace(SELF_EMAIL_TOKEN, configured_self_email())
     prompt = apply_text_config(prompt)
     expanded_prompt = expand_prompt(prompt)
     entry = {
@@ -431,6 +594,9 @@ def enqueue_prompt(prompt: str) -> None:
 
 
 def request_service_shutdown(reason: str) -> None:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("request_service_shutdown", reason)
+        return
     SHUTDOWN_REQUEST_FILE.write_text(
         json.dumps(
             {
@@ -510,6 +676,9 @@ def watch_copilot_responses(speaker: Speaker, interval_seconds: float, stop_even
 
 
 def open_folder(path: pathlib.Path) -> None:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("open_folder", path)
+        return
     subprocess.Popen(["explorer.exe", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -555,6 +724,9 @@ def find_edge_executable() -> str:
 
 
 def open_tracked_browser(url: str) -> int:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("open_tracked_browser", url)
+        return 0
     BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     existing = find_tracked_browser_processes()
     process = subprocess.Popen(
@@ -586,6 +758,9 @@ def open_tracked_browser(url: str) -> int:
 
 
 def close_tracked_browser() -> bool:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("close_tracked_browser", "tracked browser")
+        return True
     process_ids = set(find_tracked_browser_processes())
     if BROWSER_STATE_FILE.exists():
         try:
@@ -717,6 +892,10 @@ def h_close_browser(text: str, speaker: Speaker, command: Command) -> bool:
 
 
 def h_open_copilot(text: str, speaker: Speaker, command: Command) -> bool:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("open_url", "https://copilot.microsoft.com/")
+        speak(speaker, "Opening Copilot.")
+        return True
     webbrowser.open("https://copilot.microsoft.com/")
     speak(speaker, "Opening Copilot.")
     return True
@@ -806,6 +985,10 @@ def h_date(text: str, speaker: Speaker, command: Command) -> bool:
 
 
 def h_list_mics(text: str, speaker: Speaker, command: Command) -> bool:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("list_microphones", "sounddevice query skipped")
+        speak(speaker, "I found 0 input devices. I wrote them to the command log.")
+        return True
     devices = [f"{idx}: {dev['name']}" for idx, dev in enumerate(sd.query_devices()) if dev.get("max_input_channels", 0) > 0]
     log(COMMAND_LOG, "Input devices: " + " | ".join(devices))
     speak(speaker, f"I found {len(devices)} input devices. I wrote them to the command log.")
@@ -834,6 +1017,7 @@ def h_identity(text: str, speaker: Speaker, command: Command) -> bool:
 
 def h_workiq(text: str, speaker: Speaker, command: Command) -> bool:
     email_scope = email_folder_instruction()
+    recipient = configured_self_email()
     prompts = {
         "unread_teams": (
             "Checking unread Teams messages.",
@@ -892,11 +1076,11 @@ def h_workiq(text: str, speaker: Speaker, command: Command) -> bool:
     if command.handler == "daily_briefing":
         enqueue_prompt(
             prompt
-            + " Send a Daily Briefing email addressed only to Rin.Ure@microsoft.com with subject "
+            + f" Send a Daily Briefing email addressed only to {recipient} with subject "
             "\"Daily Briefing - <today's date>\". Put the Catch Up output in the email body. "
             "Rin has explicitly authorized automatic sending of this Daily Briefing to himself because he is the only recipient reading these private details. "
-            "Because the only recipient is Rin.Ure@microsoft.com, send the completed email after generating it without an additional preview step. "
-            "Do not send if there are any recipients other than Rin.Ure@microsoft.com. "
+            f"Because the only recipient is {recipient}, send the completed email after generating it without an additional preview step. "
+            f"Do not send if there are any recipients other than {recipient}. "
             "After sending, respond to Arthur with exactly: Sent to your inbox."
         )
         speak(speaker, "I am creating and sending your Daily Briefing email.")
@@ -904,22 +1088,22 @@ def h_workiq(text: str, speaker: Speaker, command: Command) -> bool:
     if command.handler == "recent_email":
         enqueue_prompt(
             prompt
-            + " Send the completed Recent Email Summary as an email addressed only to Rin.Ure@microsoft.com with subject "
+            + f" Send the completed Recent Email Summary as an email addressed only to {recipient} with subject "
             "`Recent Email Summary - <today's date>`. Rin has explicitly authorized automatic sending of this summary to himself because he is the only recipient. "
-            "Do not send if there are any recipients other than Rin.Ure@microsoft.com. After sending, respond to Arthur with exactly: Sent to your inbox."
+            f"Do not send if there are any recipients other than {recipient}. After sending, respond to Arthur with exactly: Sent to your inbox."
         )
         speak(speaker, "I am creating and sending your recent email summary.")
         return True
     if command.handler == "meeting_prep":
         enqueue_prompt(
             prompt
-            + " Send the completed Meeting Prep Summary as an email addressed only to Rin.Ure@microsoft.com with subject "
+            + f" Send the completed Meeting Prep Summary as an email addressed only to {recipient} with subject "
             "`Meeting Prep - <next meeting title or today's date>`. Rin has explicitly authorized automatic sending of this meeting prep to himself because he is the only recipient. "
-            "Do not send if there are any recipients other than Rin.Ure@microsoft.com. After sending, respond to Arthur with exactly: Sent to your inbox."
+            f"Do not send if there are any recipients other than {recipient}. After sending, respond to Arthur with exactly: Sent to your inbox."
         )
         speak(speaker, "I am creating and sending your meeting prep summary.")
         return True
-    speak(speaker, run_workiq(prompt))
+    speak_or_email_details(speaker, run_workiq(prompt), f"{command.name} - <today's date>")
     return True
 
 
@@ -934,8 +1118,14 @@ def h_daily_tasks(text: str, speaker: Speaker, command: Command) -> bool:
         "Do not include confidential details, message bodies, private personal details, or long excerpts."
     )
     write_daily_tasks_table(table)
-    subprocess.Popen(["notepad.exe", str(DAILY_TASKS_FILE)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    speak(speaker, "I created the daily task table and opened it for review.")
+    if SMOKE_TEST_MODE:
+        record_smoke_action("open_process", f"notepad.exe {DAILY_TASKS_FILE}")
+    else:
+        subprocess.Popen(["notepad.exe", str(DAILY_TASKS_FILE)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if response_needs_email(table):
+        email_details_and_speak(speaker, "Daily Task Table - <today's date>", table)
+    else:
+        speak(speaker, "I created the daily task table and opened it for review.")
     return True
 
 
@@ -943,8 +1133,8 @@ def h_daily_briefing_task_list(text: str, speaker: Speaker, command: Command) ->
     today = current_time(os.environ.get("ARTHUR_TIMEZONE", DEFAULT_TIMEZONE)).strftime("%Y-%m-%d")
     enqueue_prompt(
         "Create a Daily Briefing task list workbook for Rin. First find the latest Daily Briefing email sent to "
-        "Rin.Ure@microsoft.com for today; if today's email is not available, use the most recent Daily Briefing email "
-        "sent to Rin.Ure@microsoft.com. Pull the action items from the Catch Up list, especially Actions Needed, "
+        "<SELF_EMAIL> for today; if today's email is not available, use the most recent Daily Briefing email "
+        "sent to <SELF_EMAIL>. Pull the action items from the Catch Up list, especially Actions Needed, "
         "dedupe overlapping items, prioritize them by urgency and immediacy, and create an Excel workbook named "
         f"`C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\Daily Briefing Task List {today}.xlsx`. "
         "The workbook must contain one worksheet named `Task List` formatted as a table with these columns: "
@@ -952,9 +1142,9 @@ def h_daily_briefing_task_list(text: str, speaker: Speaker, command: Command) ->
         "For each task, include a hyperlink in `Source Daily Briefing Email` back to the Daily Briefing email used as the source. "
         "Use unchecked checkbox text `[ ]` in Done, rank High urgency before Medium before Low, use a professional font, freeze the "
         "header row, autofit column widths, and do not use formulas except hyperlinks if needed. After creating the workbook, email the Excel file "
-        "with Rin.Ure@microsoft.com on the To line only, with subject `Daily Briefing Task List - <today's date>`. Rin has explicitly "
+        "with <SELF_EMAIL> on the To line only, with subject `Daily Briefing Task List - <today's date>`. Rin has explicitly "
         "authorized automatic sending of this task-list workbook to himself because he is the only recipient. Do not "
-        "send if there are any recipients other than Rin.Ure@microsoft.com. After sending, respond to Arthur with exactly: Sent to your inbox."
+        "send if there are any recipients other than <SELF_EMAIL>. After sending, respond to Arthur with exactly: Sent to your inbox."
     )
     speak(speaker, "I am creating and sending your Daily Briefing Task List workbook.")
     return True
@@ -975,10 +1165,10 @@ def h_missed_meeting_summary(text: str, speaker: Speaker, command: Command) -> b
         "and any calendar meetings skipped because no recording/transcript was available. "
         "Format the email body so each Meeting Title uses a larger font, and use bold font for these subsection labels under each meeting: "
         "`Key Decisions and Updates:`, `Risks/Escalations:`, `Open Questions:`, and `Actions for Rin/Team:`. "
-        "Send an email addressed only to Rin.Ure@microsoft.com with subject `Missed Meeting Summary - <current date from the timestamp protocol>`. "
+        "Send an email addressed only to <SELF_EMAIL> with subject `Missed Meeting Summary - <current date from the timestamp protocol>`. "
         "Put the summaries and action list in the email body, grouped by meeting. Rin has explicitly authorized automatic "
         "sending of this missed-meeting summary email to himself because he is the only recipient. Do not send if there are "
-        "any recipients other than Rin.Ure@microsoft.com. After sending, respond to Arthur with exactly: Sent to your inbox."
+        "any recipients other than <SELF_EMAIL>. After sending, respond to Arthur with exactly: Sent to your inbox."
     )
     speak(speaker, "I am reviewing missed recorded meetings and sending you a summary email.")
     return True
@@ -999,10 +1189,10 @@ def h_meeting_summary_recap(text: str, speaker: Speaker, command: Command) -> bo
         "and any calendar meetings skipped because no recording/transcript was available. "
         "Format the email body so each Meeting Title uses a larger font, and use bold font for these subsection labels under each meeting: "
         "`Key Decisions and Updates:`, `Risks/Escalations:`, `Open Questions:`, and `Actions for Rin/Team:`. "
-        "Send an email addressed only to Rin.Ure@microsoft.com with subject `Meetings Attended Summary - <current date from the timestamp protocol>`. "
+        "Send an email addressed only to <SELF_EMAIL> with subject `Meetings Attended Summary - <current date from the timestamp protocol>`. "
         "Put the recaps and action list in the email body, grouped by meeting. Rin has explicitly authorized automatic "
         "sending of this attended-meeting summary email to himself because he is the only recipient. Do not send if there are "
-        "any recipients other than Rin.Ure@microsoft.com. After sending, respond to Arthur with exactly: Sent to your inbox."
+        "any recipients other than <SELF_EMAIL>. After sending, respond to Arthur with exactly: Sent to your inbox."
     )
     speak(speaker, "I am reviewing attended recorded meetings and sending you a summary email.")
     return True
@@ -1019,9 +1209,9 @@ def h_fast_mbr_review(text: str, speaker: Speaker, command: Command) -> bool:
         "Inspect the document content and comments for Fraud Ops review items, asks, decisions, risks, open questions, "
         "and actions. Focus specifically on anything assigned to or mentioning Fraud Ops, Rin, Rin's team, FVO, fraud, "
         "vetting, investigations, partner risk, operational metrics, or related responsibilities. Compile the review into a formatted "
-        "email addressed on the To line only to Rin.Ure@microsoft.com with subject `FAST Cross Company Partnership MBR - Fraud Ops Review`. "
+        "email addressed on the To line only to <SELF_EMAIL> with subject `FAST Cross Company Partnership MBR - Fraud Ops Review`. "
         "Rin has explicitly authorized automatic sending of this FAST MBR review email to himself because he is the only recipient. "
-        "Do not send if there are any recipients other than Rin.Ure@microsoft.com. Use this exact email body format: "
+        "Do not send if there are any recipients other than <SELF_EMAIL>. Use this exact email body format: "
         "`Source Document Reviewed` with document title, MBR date/version, last-modified timestamp, and source link; "
         "`Fraud Ops Review Items`; `Asks / Actions`; `Risks or Escalations`; and `Open Questions`. "
         "For every item include: section/comment title, what changed or was asked, owner if known, recommended next action, urgency, and a link back to the relevant section/comment in the document. "
@@ -1045,10 +1235,10 @@ def h_biweekly_incident_review(text: str, speaker: Speaker, command: Command) ->
         "Inspect the document content and comments for Fraud Ops review items, asks, decisions, risks, open questions, "
         "and actions. Focus specifically on anything assigned to or mentioning Fraud Ops, Rin, Rin's team, FVO, fraud, "
         "vetting, investigations, partner risk, operational metrics, incidents, escalations, mitigations, or related responsibilities. "
-        "Compile the review into a formatted email addressed on the To line only to Rin.Ure@microsoft.com with subject "
+        "Compile the review into a formatted email addressed on the To line only to <SELF_EMAIL> with subject "
         "`Bi-weekly Incident Review - Fraud Ops Major Incidents`. Rin has explicitly authorized automatic sending of this "
         "review email to himself because he is the only recipient. Do not send if there are any recipients other than "
-        "Rin.Ure@microsoft.com. Use this exact email body format, matching the FAST MBR review command: "
+        "<SELF_EMAIL>. Use this exact email body format, matching the FAST MBR review command: "
         "`Source Document Reviewed` with document title, meeting date, last-modified/shared timestamp, and source link; "
         "`Fraud Ops Review Items`; `Asks / Actions`; `Risks or Escalations`; and `Open Questions`. "
         "For every item include: section/comment title, what changed or was asked, owner if known, recommended next action, "
@@ -1070,11 +1260,11 @@ def h_coreidentity_entitlement_approvals(text: str, speaker: Speaker, command: C
         "For each eligible request, approve it and enter exactly `Approved.` in the approval comments. Do not approve "
         "requests that contain `link to MSA`, are ambiguous, cannot be fully inspected, or produce an error. Track every "
         "request reviewed with status Approved, Skipped, or Error and a short reason. After processing, send a Coreidentity "
-        "Entitlement Approval Report email addressed only to Rin.Ure@microsoft.com with subject "
+        "Entitlement Approval Report email addressed only to <SELF_EMAIL> with subject "
         "`Coreidentity Entitlement Approval Report - <today's date>`. Include counts, approved requests, skipped requests, "
         "errors, and any follow-up needed. Rin has explicitly authorized automatic approval for requests matching this "
         "criteria and automatic sending of this report to himself because he is the only recipient. Do not send if there "
-        "are any recipients other than Rin.Ure@microsoft.com. After the browser automation and email send are complete, close the Playwright browser. After sending, respond to Arthur with a short confirmation "
+        "are any recipients other than <SELF_EMAIL>. After the browser automation and email send are complete, close the Playwright browser. After sending, respond to Arthur with a short confirmation "
         "using second person, such as: Sent to your inbox with <approved/skipped/error counts>."
     )
     speak(speaker, "I am reviewing Coreidentity entitlement approvals and will send you a report.")
@@ -1102,11 +1292,11 @@ def h_review_all_entitlements(text: str, speaker: Speaker, command: Command) -> 
         "Personnel groups action center: https://personnel.microsoft.com/groups/actioncenter. "
         "OneVet access review: https://www.onevet.com/userAccessManagement/accessReview. "
         "After all portals have been attempted, compile a formatted Review All Entitlements report email addressed only to "
-        "rin.ure@microsoft.com with subject `Review All Entitlements Report - <today's date>`. Include one section per portal "
+        "<SELF_EMAIL> with subject `Review All Entitlements Report - <today's date>`. Include one section per portal "
         "with Portal Name, what was approved, what was skipped, what errored, and any follow-up needed. Rin has explicitly "
         "authorized automatic approval for eligible requests matching this command and automatic sending of this report to "
         "himself because he is the only recipient. Do not send if there are any To, CC, or BCC recipients other than "
-        "rin.ure@microsoft.com. After the browser automation and email send are complete, close the Playwright browser. "
+        "<SELF_EMAIL>. After the browser automation and email send are complete, close the Playwright browser. "
         "If any portal cannot be accessed, include that portal as an Error in the report and continue with the remaining portals. "
         "After sending, respond to Arthur with exactly: Sent to your inbox."
     )
@@ -1127,12 +1317,12 @@ def h_evening_inbox_brief(text: str, speaker: Speaker, command: Command) -> bool
         "Group 1: What I accomplished today (emails sent/responded, meeting invites triaged, emails deleted/archived, and completed ADO work items). "
         "Group 2: Top 3 things to focus on tomorrow (based on urgency and importance, with ADO items limited to Priority 1 only). Start with two one-sentence roll-ups: "
         "Summary of accomplishments, including themes and number of invites handled; and Summary of top 3 priorities for tomorrow. "
-        "For each group, list 3-5 bullets in this format: `[Sender] â€” Subject â€” one-line gist` with icons: âœ… for completed, "
-        "ðŸ” for priority, and ðŸ“… for invite. If a group has no items, omit it entirely. End with a short motivational phrase "
-        "acknowledging progress, such as `Great progress todayâ€”tomorrow's priorities are clear!`. Send the completed report "
-        "as an email with Rin.Ure@microsoft.com on the To line only, with subject `Evening Inbox Brief - <today's date>`. "
+        "For each group, list 3-5 bullets in this format: `[Sender] Ã¢â‚¬â€ Subject Ã¢â‚¬â€ one-line gist` with icons: Ã¢Å“â€¦ for completed, "
+        "Ã°Å¸â€Â for priority, and Ã°Å¸â€œâ€¦ for invite. If a group has no items, omit it entirely. End with a short motivational phrase "
+        "acknowledging progress, such as `Great progress todayÃ¢â‚¬â€tomorrow's priorities are clear!`. Send the completed report "
+        "as an email with <SELF_EMAIL> on the To line only, with subject `Evening Inbox Brief - <today's date>`. "
         "Rin has explicitly authorized automatic sending of this evening inbox brief to himself because he is the only recipient. "
-        "Do not send if there are any recipients other than Rin.Ure@microsoft.com. After sending, append this concise response for Arthur to speak: Sent to your inbox."
+        "Do not send if there are any recipients other than <SELF_EMAIL>. After sending, append this concise response for Arthur to speak: Sent to your inbox."
     )
     speak(speaker, "I am preparing and sending your evening inbox brief.")
     return True
@@ -1146,11 +1336,11 @@ def h_action_tracker(text: str, speaker: Speaker, command: Command) -> bool:
         "configuration from `C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_action_tracker_state.json`. "
         "Create or update ADO work items for distinct action items, using work item type `Task` unless that project does not support it; "
         "if `Task` is unavailable, use the closest available work item type and state that in the response. Tag every item with "
-        "`ArthurActionTracker`. Assign every new work item and every updated active Action Tracker work item to Rin Ure (Rin.Ure@microsoft.com) "
+        "`ArthurActionTracker`. Assign every new work item and every updated active Action Tracker work item to Rin Ure (<SELF_EMAIL>) "
         "unless Rin explicitly names a different assignee in the spoken command. Store Priority, Item to be completed, Description, Due Date, Next Action, Status, Owner, Source, and Last Updated "
         "in standard ADO fields where available and otherwise in the description/comments. Deduplicate existing items by normalized title/source "
         "before adding anything new. Active items should remain in an active/new state; completed items should move to the project's completed "
-        "state such as Done, Closed, or Completed. After creating or updating ADO items, send an email addressed only to Rin.Ure@microsoft.com "
+        "state such as Done, Closed, or Completed. After creating or updating ADO items, send an email addressed only to <SELF_EMAIL> "
         "containing only a concise summary and the ADO tracker/work item links. Rin has explicitly requested this email to himself. "
         "Do not send to anyone else. If Playwright/browser automation is used, close the Playwright browser after the ADO update and email send are complete. "
         "Respond to Arthur with exactly: Sent to your inbox."
@@ -1165,9 +1355,9 @@ def h_action_tracker_new_items(text: str, speaker: Speaker, command: Command) ->
         "`C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_action_tracker_state.json`. "
         "Review recent Teams messages/chats, Outlook email, calendar events, meeting summaries, meeting chats, and available transcripts "
         "for new action items that are not already in ADO. Use Azure DevOps at `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker`. "
-        "Add only distinct new work items tagged `ArthurActionTracker` and assign them to Rin Ure (Rin.Ure@microsoft.com) unless Rin explicitly names a different assignee, preserving Priority, Item to be completed, Description, Due Date, Next Action, "
+        "Add only distinct new work items tagged `ArthurActionTracker` and assign them to Rin Ure (<SELF_EMAIL>) unless Rin explicitly names a different assignee, preserving Priority, Item to be completed, Description, Due Date, Next Action, "
         "Status, Owner, Source, and Last Updated in standard fields where available and otherwise in the description/comments. Deduplicate existing "
-        "items by normalized title/source. After updating, send an email addressed only to Rin.Ure@microsoft.com with the count of new items added "
+        "items by normalized title/source. After updating, send an email addressed only to <SELF_EMAIL> with the count of new items added "
         "and the ADO tracker/work item links. Do not send to anyone else. If Playwright/browser automation is used, close the Playwright browser after "
         "the ADO update and email send are complete. Respond to Arthur with exactly: Sent to your inbox."
     )
@@ -1181,9 +1371,9 @@ def h_action_tracker_completed_items(text: str, speaker: Speaker, command: Comma
         "`C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_action_tracker_state.json`. "
         "Review the spoken command and recent context to identify items that Rin indicated are complete. Find matching ADO work items tagged "
         "`ArthurActionTracker` in `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker`. Move matching items to the project's completed "
-        "state such as Done, Closed, or Completed, keep or set Assigned To as Rin Ure (Rin.Ure@microsoft.com) unless Rin explicitly names a different assignee, and preserve Description, Due Date, Next Action, Owner, Source, and notes/comments. If the spoken "
+        "state such as Done, Closed, or Completed, keep or set Assigned To as Rin Ure (<SELF_EMAIL>) unless Rin explicitly names a different assignee, and preserve Description, Due Date, Next Action, Owner, Source, and notes/comments. If the spoken "
         "command does not identify specific completed items, ask Rin which items to mark complete instead of guessing. After updating, send an email "
-        "addressed only to Rin.Ure@microsoft.com with the count of items marked complete and the ADO tracker/work item links. Do not send to anyone else. "
+        "addressed only to <SELF_EMAIL> with the count of items marked complete and the ADO tracker/work item links. Do not send to anyone else. "
         "If Playwright/browser automation is used, close the Playwright browser after the ADO update and email send are complete. Respond to Arthur with exactly: Sent to your inbox."
     )
     speak(speaker, "I am updating your Action Tracker for completed items.")
@@ -1196,7 +1386,7 @@ def h_action_tracker_review_completed(text: str, speaker: Speaker, command: Comm
         "`C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_action_tracker_state.json`. "
         "Use Azure DevOps at `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker` to review completed work items tagged `ArthurActionTracker`. "
         "Summarize the completed ADO items with their notes/comments, priority, completion date if available, owner, and current state. Send an email "
-        "addressed only to Rin.Ure@microsoft.com with a concise completed-task summary, the relevant notes, and ADO tracker/work item links. Do not send to anyone else. If Playwright/browser automation is used, close "
+        "addressed only to <SELF_EMAIL> with a concise completed-task summary, the relevant notes, and ADO tracker/work item links. Do not send to anyone else. If Playwright/browser automation is used, close "
         "the Playwright browser after the review and email send are complete. Respond to Arthur with exactly: Sent to your inbox."
     )
     speak(speaker, "I am summarizing your completed Action Tracker tasks and will send the notes to your inbox.")
@@ -1529,6 +1719,9 @@ COMMANDS = [
 
 
 def write_voice_command_index() -> None:
+    if SMOKE_TEST_MODE:
+        record_smoke_action("write_voice_command_index", VOICE_COMMAND_INDEX_FILE)
+        return
     now = current_time(os.environ.get("ARTHUR_TIMEZONE", DEFAULT_TIMEZONE)).strftime("%Y-%m-%d %I:%M %p %Z")
     lines = [
         "# Arthur Voice Command Index",
@@ -1556,11 +1749,120 @@ def find_command(text: str) -> Command | None:
     return best[1] if best else None
 
 
-def handle_command(text: str, speaker: Speaker) -> bool:
+def smoke_phrase(alias: str) -> str:
+    if alias.endswith(" *"):
+        return alias[:-2].strip() + " smoke test request"
+    return alias
+
+
+def run_command_smoke_tests() -> dict[str, object]:
+    global SMOKE_TEST_MODE, SMOKE_TEST_ACTIONS, LAST_HEARD, LAST_RESPONSE, PENDING_WAKE_UNTIL
+    SMOKE_TEST_MODE = True
+    SMOKE_TEST_ACTIONS = []
+    LAST_HEARD = ""
+    LAST_RESPONSE = ""
+    PENDING_WAKE_UNTIL = 0.0
+    speaker = SmokeTestSpeaker()
+    alias_failures: list[dict[str, str]] = []
+    handler_failures: list[dict[str, str]] = []
+    handler_results: list[dict[str, object]] = []
+
+    for command in COMMANDS:
+        for alias in command.aliases:
+            phrase = smoke_phrase(alias)
+            matched = find_command(phrase)
+            if matched is None or matched.handler != command.handler:
+                alias_failures.append(
+                    {
+                        "command": command.name,
+                        "alias": alias,
+                        "phrase": phrase,
+                        "matched": matched.name if matched else "none",
+                    }
+                )
+
+        before_actions = len(SMOKE_TEST_ACTIONS)
+        before_spoken = len(speaker.spoken)
+        phrase = smoke_phrase(command.aliases[0])
+        try:
+            result = HANDLERS[command.handler](phrase, speaker, command)
+            handler_results.append(
+                {
+                    "command": command.name,
+                    "handler": command.handler,
+                    "result": result,
+                    "actions": len(SMOKE_TEST_ACTIONS) - before_actions,
+                    "spoken": len(speaker.spoken) - before_spoken,
+                }
+            )
+        except Exception as exc:
+            handler_failures.append(
+                {
+                    "command": command.name,
+                    "handler": command.handler,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    return {
+        "status": "passed" if not alias_failures and not handler_failures else "failed",
+        "commands": len(COMMANDS),
+        "aliases": sum(len(command.aliases) for command in COMMANDS),
+        "alias_failures": alias_failures,
+        "handler_failures": handler_failures,
+        "handler_results": handler_results,
+        "recorded_side_effects": SMOKE_TEST_ACTIONS,
+        "spoken_responses": speaker.spoken,
+    }
+
+
+def best_alias_similarity(text: str) -> float:
+    normalized = normalize_command_text(text)
+    if not normalized:
+        return 0.0
+    best = 0.0
+    for item in COMMANDS:
+        for alias in item.aliases:
+            candidate = normalize_command_text(alias.replace(" *", ""))
+            if not candidate:
+                continue
+            best = max(best, difflib.SequenceMatcher(None, normalized, candidate).ratio())
+    return best
+
+
+def should_ask_for_clarification(text: str, transcription: TranscriptionResult | None, matched: Command | None) -> tuple[bool, str]:
+    if matched is not None:
+        return False, ""
+    normalized = normalize_command_text(text)
+    words = normalized.split()
+    reasons: list[str] = []
+    if transcription is not None:
+        if transcription.avg_logprob is not None and transcription.avg_logprob < -0.85:
+            reasons.append(f"low avg_logprob={transcription.avg_logprob:.2f}")
+        if transcription.no_speech_prob is not None and transcription.no_speech_prob > 0.55:
+            reasons.append(f"high no_speech_prob={transcription.no_speech_prob:.2f}")
+        if transcription.compression_ratio is not None and transcription.compression_ratio > 2.4:
+            reasons.append(f"high compression_ratio={transcription.compression_ratio:.2f}")
+    if len(words) <= 2 and best_alias_similarity(text) < 0.55:
+        reasons.append("short unmatched phrase")
+    if len(normalized) < 8:
+        reasons.append("too few recognized characters")
+    if not reasons:
+        return False, ""
+    return True, "; ".join(reasons)
+
+
+def handle_command(text: str, speaker: Speaker, transcription: TranscriptionResult | None = None) -> bool:
     log(COMMAND_LOG, f"Command: {text}")
     matched = find_command(text)
     if matched:
         return HANDLERS[matched.handler](text, speaker, matched)
+
+    should_clarify, reason = should_ask_for_clarification(text, transcription, matched)
+    if should_clarify:
+        log(COMMAND_LOG, f"Asked for clarification instead of Scout handoff: {text}; reason={reason}")
+        speak(speaker, "I did not catch that clearly. Please repeat the command.")
+        return True
 
     log(COMMAND_LOG, f"Auto-escalated to Copilot: {text}")
     enqueue_prompt(text)
@@ -1586,10 +1888,16 @@ def main() -> int:
     parser.add_argument("--welcome-name", default=os.environ.get("ARTHUR_WELCOME_NAME", user_first_name()))
     parser.add_argument("--timezone", default=os.environ.get("ARTHUR_TIMEZONE", DEFAULT_TIMEZONE))
     parser.add_argument("--greeting-scenario", choices=("startup", "updates"), default=os.environ.get("ARTHUR_GREETING_SCENARIO", "startup"))
+    parser.add_argument("--smoke-test-commands", action="store_true", help="Run no-side-effect routing tests for every voice command and exit.")
     parser.add_argument("--once", action="store_true", help="Handle one recognized wake-word command, then exit.")
     args = parser.parse_args()
 
     SCRATCH.mkdir(parents=True, exist_ok=True)
+    if args.smoke_test_commands:
+        result = run_command_smoke_tests()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0 if result["status"] == "passed" else 1
+
     write_voice_command_index()
     device_info = sd.query_devices(args.device)
     CONFIGURED_MICROPHONE_DEVICE = str(device_info["name"])
@@ -1639,11 +1947,19 @@ def main() -> int:
             count += 1
             path = SCRATCH / f"arthur_bridge_utterance_{count:04d}.wav"
             wavfile.write(str(path), args.samplerate, audio)
-            text = transcribe_audio(model, path)
+            transcription = transcribe_audio(model, path)
+            text = transcription.text
             if not text:
                 continue
 
-            log(TRANSCRIPT_LOG, f"Heard: {text}")
+            log(
+                TRANSCRIPT_LOG,
+                "Heard: "
+                f"{text} "
+                f"(avg_logprob={transcription.avg_logprob if transcription.avg_logprob is not None else 'n/a'}, "
+                f"no_speech_prob={transcription.no_speech_prob if transcription.no_speech_prob is not None else 'n/a'}, "
+                f"compression_ratio={transcription.compression_ratio if transcription.compression_ratio is not None else 'n/a'})",
+            )
             LAST_HEARD = text
             command = strip_wake_word(text, args.wake_word)
             now = time.time()
@@ -1658,7 +1974,7 @@ def main() -> int:
                 continue
             PENDING_WAKE_UNTIL = 0.0
 
-            should_continue = handle_command(command, speaker)
+            should_continue = handle_command(command, speaker, transcription)
             if args.once or not should_continue:
                 break
     finally:
@@ -1672,4 +1988,5 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except KeyboardInterrupt:
         print("\nI stopped the voice bridge.", flush=True)
+
 

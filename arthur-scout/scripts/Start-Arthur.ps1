@@ -7,11 +7,10 @@ $ErrorActionPreference = 'Stop'
 
 $Scratch = $PSScriptRoot
 $ConfigFile = Join-Path $Scratch 'arthur.config.json'
-if (Test-Path -LiteralPath $ConfigFile) {
-    $ArthurConfig = Get-Content -LiteralPath $ConfigFile -Raw | ConvertFrom-Json
-} else {
-    $ArthurConfig = $null
+if (-not (Test-Path -LiteralPath $ConfigFile)) {
+    throw "Arthur config file is required and was not found: $ConfigFile. Copy arthur.config.template.json to arthur.config.json and fill the placeholders."
 }
+$ArthurConfig = Get-Content -LiteralPath $ConfigFile -Raw | ConvertFrom-Json
 if ($ArthurConfig -and $ArthurConfig.runtime -and $ArthurConfig.runtime.scratchpadPath) {
     $Scratch = [string] $ArthurConfig.runtime.scratchpadPath
 }
@@ -24,6 +23,10 @@ $SupervisorStdoutLog = Join-Path $Scratch 'arthur_supervisor_stdout.log'
 $SupervisorStderrLog = Join-Path $Scratch 'arthur_supervisor_stderr.log'
 $PromptQueueFile = Join-Path $Scratch 'arthur_prompt_queue.jsonl'
 $PromptResponsesFile = Join-Path $Scratch 'arthur_prompt_responses.jsonl'
+$AutomationSyncScript = Join-Path $Scratch 'arthur_automation_sync.py'
+$AutomationTemplateFile = Join-Path $Scratch 'automations.template.json'
+$PreflightScript = Join-Path $Scratch 'arthur_preflight.py'
+$VersionScript = Join-Path $Scratch 'arthur_version.py'
 $ArthurMicDevice = if ($ArthurConfig -and $ArthurConfig.microphone -and $null -ne $ArthurConfig.microphone.deviceIndex) { [int] $ArthurConfig.microphone.deviceIndex } else { 1 }
 $ArthurThreshold = if ($ArthurConfig -and $ArthurConfig.microphone -and $null -ne $ArthurConfig.microphone.threshold) { [int] $ArthurConfig.microphone.threshold } else { 350 }
 $ArthurTts = if ($ArthurConfig -and $ArthurConfig.voice -and $ArthurConfig.voice.tts) { [string] $ArthurConfig.voice.tts } else { 'edge' }
@@ -44,43 +47,57 @@ function Write-ArthurStatus {
     Write-Host "[Arthur startup] $Message"
 }
 
-function Enable-ArthurAutomations {
-    if (-not (Test-Path -LiteralPath $AutomationFile)) {
-        throw "Automation file not found: $AutomationFile"
+function Test-ArthurConfig {
+    $configHelper = Join-Path $Scratch 'arthur_config.py'
+    if (-not (Test-Path -LiteralPath $configHelper)) {
+        throw "Arthur config helper not found: $configHelper"
     }
-
-    $parsedAutomations = Get-Content -LiteralPath $AutomationFile -Raw | ConvertFrom-Json
-    $automations = @($parsedAutomations | ForEach-Object { $_ })
-    $changed = $false
-    $enabledCount = 0
-
-    foreach ($automation in $automations) {
-        if ($EnabledArthurAutomationNames -contains $automation.name) {
-            $enabledCount++
-            if (-not $automation.enabled) {
-                $automation.enabled = $true
-                $changed = $true
-            }
-        }
-        if ($DisabledArthurAutomationNames -contains $automation.name) {
-            if ($automation.enabled) {
-                $automation.enabled = $false
-                $changed = $true
-            }
-        }
+    $result = & python $configHelper --config $ConfigFile --validate 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw ($result -join [Environment]::NewLine)
     }
+    Write-ArthurStatus ($result -join ' ')
+}
 
-    if ($enabledCount -ne $EnabledArthurAutomationNames.Count) {
-        Write-ArthurStatus "Enabled $enabledCount of $($EnabledArthurAutomationNames.Count) known Arthur automations; check automation names if any are missing."
+function Test-ArthurPreflight {
+    if (-not (Test-Path -LiteralPath $PreflightScript)) {
+        throw "Arthur preflight script not found: $PreflightScript"
     }
+    $result = & python $PreflightScript --strict --write 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw ($result -join [Environment]::NewLine)
+    }
+    Write-ArthurStatus 'Arthur preflight checks passed.'
+}
 
-    if ($changed) {
-        $json = ConvertTo-Json -InputObject $automations -Depth 20
-        Set-Content -LiteralPath $AutomationFile -Value $json -Encoding UTF8
-        Write-ArthurStatus 'Arthur-side automations enabled.'
-    } else {
-        Write-ArthurStatus 'Arthur-side automations were already enabled.'
+function Sync-ArthurAutomations {
+    if (-not (Test-Path -LiteralPath $AutomationSyncScript)) {
+        throw "Arthur automation sync script not found: $AutomationSyncScript"
     }
+    if (-not (Test-Path -LiteralPath $AutomationTemplateFile)) {
+        throw "Arthur automation template not found: $AutomationTemplateFile"
+    }
+    $result = & python $AutomationSyncScript --template $AutomationTemplateFile 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw ($result -join [Environment]::NewLine)
+    }
+    Write-ArthurStatus 'Arthur automations synchronized from template.'
+}
+
+function Update-ArthurVersionManifest {
+    if (-not (Test-Path -LiteralPath $VersionScript)) {
+        Write-ArthurStatus "Arthur version script not found: $VersionScript"
+        return
+    }
+    $args = @($VersionScript, '--write')
+    if ($env:ARTHUR_COMMIT_SHA) {
+        $args += @('--commit-sha', $env:ARTHUR_COMMIT_SHA)
+    }
+    $result = & python @args 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw ($result -join [Environment]::NewLine)
+    }
+    Write-ArthurStatus 'Arthur version manifest updated.'
 }
 
 function Start-ArthurSupervisor {
@@ -124,6 +141,9 @@ function Start-ArthurSupervisor {
 }
 
 New-Item -ItemType Directory -Path $Scratch -Force | Out-Null
+Test-ArthurConfig
+Test-ArthurPreflight
+Update-ArthurVersionManifest
 if (-not (Test-Path -LiteralPath $PromptQueueFile)) {
     New-Item -ItemType File -Path $PromptQueueFile | Out-Null
 }
@@ -131,7 +151,7 @@ if (-not (Test-Path -LiteralPath $PromptResponsesFile)) {
     New-Item -ItemType File -Path $PromptResponsesFile | Out-Null
 }
 
-Enable-ArthurAutomations
+Sync-ArthurAutomations
 Start-ArthurSupervisor
 Write-ArthurStatus 'Startup complete.'
 

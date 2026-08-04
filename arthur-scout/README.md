@@ -47,10 +47,12 @@ arthur-scout/
 
 ## Recommended install flow
 
-1. Clone repo.
-2. Run install.ps1.
-3. Installer copies Arthur files into Scout Scratchpad or a chosen install directory.
-4. Installer creates local config from template.
-5. Installer registers/updates Scout automation prompt.
-6. Installer optionally creates Windows scheduled task: Arthur Voice Bridge.
-7. Run Start-Arthur.ps1.
+1. Download the `arthur-scout-vX.Y.Z.zip` asset from a tagged GitHub Release, or clone the repo for development.
+2. Extract the zip.
+3. Run `install.ps1`.
+4. Installer copies Arthur files into Scout Scratchpad or a chosen install directory.
+5. Installer creates local config from template.
+6. Fill `arthur.config.json` placeholders.
+7. Run `Start-Arthur.ps1`.
+
+Tagged releases are published from tags like `v0.2.0`. Each release asset is a clean zipped `arthur-scout` package built by GitHub Actions.

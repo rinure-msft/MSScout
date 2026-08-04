@@ -4,6 +4,10 @@ Open MS Scout to a new chat prompt.
 
 On your MS Scout prompt, run the following commands:
 
+	Download arthur-scout-vX.Y.Z.zip from a tagged GitHub Release and extract it.
+
+	Alternatively, for development:
+
 	git clone https://github.com/rinure-msft/MSScout.git
 	
 	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\MSScout\arthur-scout\install.ps1
@@ -12,14 +16,19 @@ Then edit the generated local config:
 
 	%USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad\arthur.config.json
 
+Arthur will not start until this local config exists and all required placeholders are replaced.
+
 Update placeholders:
 
 	- user name
+	- first name
 	- email address
 	- microphone index
 	- timezone
 	- voice
-	- Azure DevOps org/project
+	- Azure DevOps org/project/url and default assignee
+	- WorkIQ path
+	- Scout automations JSON path
 	- enabled commands
 
 Then start Arthur:

@@ -1,6 +1,7 @@
 ﻿{
   "assistantName": "Arthur",
   "userDisplayName": "<YOUR_NAME>",
+  "userFirstName": "<YOUR_FIRST_NAME>",
   "timezone": "Mountain Standard Time",
   "voice": {
     "tts": "edge",
@@ -23,12 +24,16 @@
   "azureDevOps": {
     "organization": "<ADO_ORGANIZATION>",
     "project": "<ADO_PROJECT>",
+    "url": "https://dev.azure.com/<ADO_ORGANIZATION>/<ADO_PROJECT>",
     "tag": "ArthurActionTracker",
     "defaultAssignee": "<YOUR_NAME>",
-    "defaultAssigneeEmail": "<YOUR_EMAIL>"
+    "defaultAssigneeEmail": "<YOUR_EMAIL>",
+    "defaultWorkItemType": "Task"
   },
   "runtime": {
     "scratchpadPath": "<MS_SCOUT_SCRATCHPAD_PATH>",
+    "workiqPath": "<WORKIQ_CMD_PATH>",
+    "automationFile": "<SCOUT_AUTOMATIONS_JSON_PATH>",
     "promptResponderAutomationId": "2w51kbs3mqra79xo",
     "cleanupChatArtifactsOlderThanHours": 4,
     "chatCleanupIntervalMinutes": 45,

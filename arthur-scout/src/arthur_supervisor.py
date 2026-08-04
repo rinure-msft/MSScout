@@ -325,7 +325,7 @@ def run_cleanup() -> None:
         timeout=120,
     )
     if result.returncode != 0:
-        log(f"Cleanup failed: {(result.stderr or result.stdout).strip()[:500]}")
+        log(f"Cleanup failed: {(result.stderr or result.stdout).strip()[:1500]}")
 
 
 def run_chat_cleanup() -> None:
@@ -348,7 +348,7 @@ def run_chat_cleanup() -> None:
         timeout=180,
     )
     if result.returncode != 0:
-        log(f"Chat cleanup failed: {(result.stderr or result.stdout).strip()[:500]}")
+        log(f"Chat cleanup failed: {(result.stderr or result.stdout).strip()[:1500]}")
 
 
 def main() -> int:

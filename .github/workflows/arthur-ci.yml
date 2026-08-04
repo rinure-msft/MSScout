@@ -1,0 +1,85 @@
+name: Arthur CI
+
+on:
+  push:
+    paths:
+      - "arthur-scout/**"
+      - ".github/workflows/arthur-ci.yml"
+  pull_request:
+    paths:
+      - "arthur-scout/**"
+      - ".github/workflows/arthur-ci.yml"
+
+jobs:
+  arthur-package:
+    name: Validate Arthur package
+    runs-on: ubuntu-latest
+    env:
+      PYGAME_HIDE_SUPPORT_PROMPT: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y portaudio19-dev espeak ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r arthur-scout/requirements-ci.txt
+
+      - name: Compile Arthur Python modules
+        run: python -m py_compile arthur-scout/src/*.py
+
+      - name: Run no-side-effect command smoke tests
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'arthur_voice_command_smoke_test.json'
+          python arthur-scout/src/arthur_voice_bridge.py --smoke-test-commands | Set-Content -Path $out -Encoding UTF8
+          $raw = Get-Content $out -Raw
+          $start = $raw.IndexOf('{')
+          if ($start -lt 0) {
+            throw "No JSON object found in smoke-test output."
+          }
+          $json = $raw.Substring($start)
+          Set-Content -Path $out -Value $json -Encoding UTF8
+          $result = $json | ConvertFrom-Json
+          "Smoke status=$($result.status) commands=$($result.commands) aliases=$($result.aliases) alias_failures=$($result.alias_failures.Count) handler_failures=$($result.handler_failures.Count)"
+          if ($result.status -ne 'passed') {
+            throw "Arthur command smoke tests failed."
+          }
+
+      - name: Validate package files and templates
+        shell: pwsh
+        run: pwsh -NoProfile -File arthur-scout/scripts/Test-Arthur.ps1 -PackageRoot arthur-scout
+
+      - name: Validate package export
+        shell: pwsh
+        run: |
+          $liveSource = Join-Path $env:RUNNER_TEMP 'arthur-live-source'
+          $exportRoot = Join-Path $env:RUNNER_TEMP 'arthur-exported'
+          New-Item -ItemType Directory -Path $liveSource -Force | Out-Null
+          Copy-Item -LiteralPath 'arthur-scout/scripts/Start-Arthur.ps1' -Destination $liveSource -Force
+          Copy-Item -Path 'arthur-scout/src/*.py' -Destination $liveSource -Force
+          pwsh -NoProfile -File arthur-scout/scripts/Export-ArthurPackage.ps1 -SourceRoot $liveSource -OutputRoot $exportRoot
+          pwsh -NoProfile -File (Join-Path $exportRoot 'arthur-scout/scripts/Test-Arthur.ps1') -PackageRoot (Join-Path $exportRoot 'arthur-scout')
+
+      - name: Generate dashboard snapshot
+        run: python arthur-scout/src/arthur_status_dashboard.py --output "${RUNNER_TEMP}/arthur_status_dashboard.html"
+
+      - name: Upload CI artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arthur-ci-artifacts
+          path: |
+            ${{ runner.temp }}/arthur_voice_command_smoke_test.json
+            ${{ runner.temp }}/arthur_status_dashboard.html
+          if-no-files-found: ignore

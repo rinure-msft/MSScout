@@ -1,0 +1,78 @@
+name: Arthur Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example v0.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package-release:
+    name: Package Arthur release
+    runs-on: ubuntu-latest
+    env:
+      PYGAME_HIDE_SUPPORT_PROMPT: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set release version
+        shell: pwsh
+        run: |
+          $version = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.version }}' } else { '${{ github.ref_name }}' }
+          if ($version -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Release version must look like v0.2.0. Got: $version"
+          }
+          "ARTHUR_RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y portaudio19-dev espeak ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r arthur-scout/requirements-ci.txt
+
+      - name: Validate package source
+        shell: pwsh
+        run: |
+          python -m py_compile arthur-scout/src/*.py
+          pwsh -NoProfile -File arthur-scout/scripts/Test-Arthur.ps1 -PackageRoot arthur-scout
+
+      - name: Build clean package
+        shell: pwsh
+        run: |
+          $liveSource = Join-Path $env:RUNNER_TEMP 'arthur-live-source'
+          $exportRoot = Join-Path $env:RUNNER_TEMP 'arthur-exported'
+          New-Item -ItemType Directory -Path $liveSource -Force | Out-Null
+          Copy-Item -LiteralPath 'arthur-scout/scripts/Start-Arthur.ps1' -Destination $liveSource -Force
+          Copy-Item -LiteralPath 'arthur-scout/config/automations.template.json' -Destination (Join-Path $liveSource 'automations.template.json') -Force
+          Copy-Item -Path 'arthur-scout/src/*.py' -Destination $liveSource -Force
+          pwsh -NoProfile -File arthur-scout/scripts/Export-ArthurPackage.ps1 -SourceRoot $liveSource -OutputRoot $exportRoot
+          pwsh -NoProfile -File (Join-Path $exportRoot 'arthur-scout/scripts/Test-Arthur.ps1') -PackageRoot (Join-Path $exportRoot 'arthur-scout')
+          Compress-Archive -Path (Join-Path $exportRoot 'arthur-scout') -DestinationPath "arthur-scout-$env:ARTHUR_RELEASE_VERSION.zip" -Force
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.ARTHUR_RELEASE_VERSION }}
+          name: Arthur ${{ env.ARTHUR_RELEASE_VERSION }}
+          generate_release_notes: true
+          files: arthur-scout-${{ env.ARTHUR_RELEASE_VERSION }}.zip

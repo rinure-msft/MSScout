@@ -1,6 +1,8 @@
 import json
 import os
 import pathlib
+import re
+import sys
 from copy import deepcopy
 from typing import Any
 
@@ -58,6 +60,27 @@ DEFAULT_CONFIG: dict[str, Any] = {
     ],
 }
 
+REQUIRED_CONFIG_FIELDS = (
+    "userDisplayName",
+    "userFirstName",
+    "timezone",
+    "voice.tts",
+    "voice.edgeVoice",
+    "microphone.deviceIndex",
+    "microphone.threshold",
+    "notification.selfEmail",
+    "azureDevOps.organization",
+    "azureDevOps.project",
+    "azureDevOps.url",
+    "azureDevOps.tag",
+    "azureDevOps.defaultAssignee",
+    "azureDevOps.defaultAssigneeEmail",
+    "runtime.scratchpadPath",
+    "runtime.workiqPath",
+    "runtime.automationFile",
+)
+PLACEHOLDER_PATTERN = re.compile(r"^<[^>]+>$")
+
 
 def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = deepcopy(base)
@@ -92,6 +115,50 @@ def get_config(path: str, default: Any = None) -> Any:
     return value
 
 
+def _get_from(config: dict[str, Any], path: str) -> Any:
+    value: Any = config
+    for part in path.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
+
+
+def _is_placeholder(value: Any) -> bool:
+    return isinstance(value, str) and bool(PLACEHOLDER_PATTERN.match(value.strip()))
+
+
+def validate_config(config: dict[str, Any] | None = None, config_path: pathlib.Path | None = None) -> list[str]:
+    config = config if config is not None else CONFIG
+    errors: list[str] = []
+    if config_path is not None and not config_path.exists():
+        errors.append(f"Config file is required and was not found: {config_path}")
+    for field in REQUIRED_CONFIG_FIELDS:
+        value = _get_from(config, field)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            errors.append(f"Missing required config field: {field}")
+        elif _is_placeholder(value):
+            errors.append(f"Required config field still contains a placeholder: {field}={value}")
+    tts = str(_get_from(config, "voice.tts") or "")
+    if tts and tts not in {"edge", "windows"}:
+        errors.append("voice.tts must be 'edge' or 'windows'")
+    try:
+        int(_get_from(config, "microphone.deviceIndex"))
+    except (TypeError, ValueError):
+        errors.append("microphone.deviceIndex must be an integer")
+    try:
+        int(_get_from(config, "microphone.threshold"))
+    except (TypeError, ValueError):
+        errors.append("microphone.threshold must be an integer")
+    email = str(_get_from(config, "notification.selfEmail") or "")
+    if email and "@" not in email:
+        errors.append("notification.selfEmail must look like an email address")
+    ado_email = str(_get_from(config, "azureDevOps.defaultAssigneeEmail") or "")
+    if ado_email and "@" not in ado_email:
+        errors.append("azureDevOps.defaultAssigneeEmail must look like an email address")
+    return errors
+
+
 def get_path(path: str, default: str | None = None) -> pathlib.Path:
     value = get_config(path, default)
     if value is None:
@@ -119,8 +186,7 @@ def apply_text_config(text: str) -> str:
     scratchpad = str(get_path("runtime.scratchpadPath", str(MODULE_DIR)))
     workiq_path = str(get_path("runtime.workiqPath", str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd")))
     replacements = {
-        "Rin.Ure@microsoft.com": self_email(),
-        "rin.ure@microsoft.com": self_email(),
+        "<SELF_EMAIL>": self_email(),
         "Rin Ure": str(get_config("azureDevOps.defaultAssignee", user_display_name())),
         "Rin": user_first_name(),
         r"C:\Users\riur\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad": scratchpad,
@@ -134,3 +200,36 @@ def apply_text_config(text: str) -> str:
         if new:
             text = text.replace(old, new)
     return text
+
+
+def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Arthur config helper.")
+    parser.add_argument("--config", help="Path to arthur.config.json")
+    parser.add_argument("--validate", action="store_true", help="Validate required config fields.")
+    args = parser.parse_args()
+    if not args.validate:
+        parser.print_help()
+        return 0
+
+    path = pathlib.Path(args.config) if args.config else DEFAULT_CONFIG_PATH
+    if not path.exists():
+        print(f"Arthur config validation failed:\n- Config file is required and was not found: {path}", file=sys.stderr)
+        return 1
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(data, dict):
+        print(f"Arthur config validation failed:\n- Arthur config root must be an object: {path}", file=sys.stderr)
+        return 1
+    errors = validate_config(_merge(DEFAULT_CONFIG, data), path)
+    if errors:
+        print("Arthur config validation failed:", file=sys.stderr)
+        for error in errors:
+            print(f"- {error}", file=sys.stderr)
+        return 1
+    print(f"Arthur config validation passed: {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
