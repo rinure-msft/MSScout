@@ -42,7 +42,8 @@ HEARTBEAT_FILE = SCRATCH / "arthur_voice_bridge_heartbeat.json"
 WORKIQ = get_path("runtime.workiqPath", str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd"))
 EDGE_VOICE = str(get_config("voice.edgeVoice", "en-US-BrianNeural"))
 DEFAULT_TIMEZONE = str(get_config("timezone", "Mountain Standard Time"))
-MAX_SPEECH_CHUNK_CHARS = 420
+MAX_SPEECH_CHUNK_CHARS = 260
+MAX_COMPLETION_SPEECH_CHARS = 280
 MIN_TRANSCRIBE_RMS = float(get_config("microphone.minTranscribeRms", 120.0))
 MIN_TRANSCRIBE_PEAK = int(get_config("microphone.minTranscribePeak", 700))
 WINDOWS_TIMEZONE_ALIASES = {
@@ -77,32 +78,38 @@ class Speaker:
         communicate = edge_tts.Communicate(text, self.edge_voice)
         await communicate.save(str(path))
 
+    def _speak_edge_chunk(self, chunk: str) -> bool:
+        for attempt in range(2):
+            try:
+                self.edge_count += 1
+                path = SCRATCH / f"arthur_edge_tts_{self.edge_count:04d}.mp3"
+                asyncio.run(asyncio.wait_for(self._save_edge_tts(chunk, path), timeout=30))
+                pygame.mixer.music.load(str(path))
+                pygame.mixer.music.play()
+                playback_started = time.monotonic()
+                try:
+                    playback_timeout = max(12.0, pygame.mixer.Sound(str(path)).get_length() + 8.0)
+                except Exception:
+                    playback_timeout = max(30.0, min(120.0, len(chunk) * 0.30))
+                while pygame.mixer.music.get_busy():
+                    if time.monotonic() - playback_started > playback_timeout:
+                        pygame.mixer.music.stop()
+                        raise TimeoutError(f"Edge TTS playback exceeded {playback_timeout:.1f}s")
+                    time.sleep(0.05)
+                return True
+            except Exception as exc:
+                log(COMMAND_LOG, f"Edge TTS chunk attempt {attempt + 1} failed: {type(exc).__name__}: {exc}")
+                time.sleep(0.25)
+        return False
+
     def say(self, text: str) -> None:
         with self.lock:
             text = sanitize_for_speech(text)
             print(f"Arthur: {text}", flush=True)
             if self.mode == "edge":
                 for chunk in split_for_speech(text):
-                    try:
-                        self.edge_count += 1
-                        path = SCRATCH / f"arthur_edge_tts_{self.edge_count:04d}.mp3"
-                        asyncio.run(asyncio.wait_for(self._save_edge_tts(chunk, path), timeout=15))
-                        pygame.mixer.music.load(str(path))
-                        pygame.mixer.music.play()
-                        playback_started = time.monotonic()
-                        try:
-                            playback_timeout = max(8.0, pygame.mixer.Sound(str(path)).get_length() + 5.0)
-                        except Exception:
-                            playback_timeout = max(30.0, min(120.0, len(chunk) * 0.25))
-                        while pygame.mixer.music.get_busy():
-                            if time.monotonic() - playback_started > playback_timeout:
-                                pygame.mixer.music.stop()
-                                raise TimeoutError(f"Edge TTS playback exceeded {playback_timeout:.1f}s")
-                            time.sleep(0.05)
-                    except Exception as exc:
-                        log(COMMAND_LOG, f"Edge TTS chunk failed; falling back to Windows voice: {type(exc).__name__}: {exc}")
-                        self.pyttsx3_engine.say(chunk)
-                        self.pyttsx3_engine.runAndWait()
+                    if not self._speak_edge_chunk(chunk):
+                        log(COMMAND_LOG, "Edge TTS chunk failed after retries; skipped Windows voice fallback to avoid voice switching.")
                 log(COMMAND_LOG, f"Spoke response using Edge TTS: {text[:120]}")
                 return
 
@@ -150,7 +157,27 @@ def sanitize_for_speech(text: str) -> str:
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
+    text = re.sub(r"https?://\S+", " link omitted ", text)
+    text = re.sub(r"\b[\w.-]+@[\w.-]+\.\w+\b", " email address omitted ", text)
     return text.encode("ascii", errors="replace").decode("ascii")
+
+
+def concise_completion_for_speech(response: str) -> str:
+    text = re.sub(r"\s+", " ", response).strip()
+    if not text:
+        return "Done."
+    lower = text.lower()
+    if text.startswith("Sent to your inbox") or "sent to your inbox" in lower:
+        return "Sent to your inbox."
+    if "queued" in lower and ("email" in lower or "inbox" in lower):
+        return "I queued the email and will send it to your inbox."
+    if "http://" in lower or "https://" in lower or len(text) > MAX_COMPLETION_SPEECH_CHARS:
+        first_sentence = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0]
+        first_sentence = re.sub(r"https?://\S+", "link omitted", first_sentence).strip()
+        if len(first_sentence) <= MAX_COMPLETION_SPEECH_CHARS and "link omitted" not in first_sentence.lower():
+            return first_sentence
+        return "The item is complete. I kept the detailed links and notes out of the spoken response."
+    return text
 
 
 def write_json_atomic(path: pathlib.Path, payload: dict) -> None:
@@ -453,7 +480,7 @@ def poll_copilot_responses(speaker: Speaker) -> None:
         response = str(entry.get("response") or "").strip()
         if not response:
             continue
-        spoken_response = sanitize_for_speech(response)
+        spoken_response = sanitize_for_speech(concise_completion_for_speech(response))
         log(COMMAND_LOG, f"Copilot response for {response_id}: {spoken_response}")
         spoken.add(response_id)
         save_spoken_response_ids(spoken)
@@ -1168,11 +1195,11 @@ def h_action_tracker_review_completed(text: str, speaker: Speaker, command: Comm
         "Review Arthur's completed Azure DevOps Action Tracker tasks. Read the tracker configuration from "
         "`C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_action_tracker_state.json`. "
         "Use Azure DevOps at `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker` to review completed work items tagged `ArthurActionTracker`. "
-        "Summarize completed items by priority, completion date if available, and owner. Send an email addressed only to Rin.Ure@microsoft.com with "
-        "a concise completed-task summary and ADO tracker/work item links. Do not send to anyone else. If Playwright/browser automation is used, close "
+        "Summarize the completed ADO items with their notes/comments, priority, completion date if available, owner, and current state. Send an email "
+        "addressed only to Rin.Ure@microsoft.com with a concise completed-task summary, the relevant notes, and ADO tracker/work item links. Do not send to anyone else. If Playwright/browser automation is used, close "
         "the Playwright browser after the review and email send are complete. Respond to Arthur with exactly: Sent to your inbox."
     )
-    speak(speaker, "I am reviewing your completed Action Tracker tasks.")
+    speak(speaker, "I am summarizing your completed Action Tracker tasks and will send the notes to your inbox.")
     return True
 
 
@@ -1362,8 +1389,9 @@ COMMANDS = [
         "Review all entitlement approval portals, approve eligible requests, and email a report.",
     ),
     Command(
-        "evening inbox brief",
+        "evening brief",
         (
+            "evening brief",
             "evening inbox brief",
             "inbox brief",
             "evening email brief",
@@ -1374,7 +1402,7 @@ COMMANDS = [
             "tomorrow priorities",
         ),
         "evening_inbox_brief",
-        "Create an executive evening inbox brief from priority folders.",
+        "Create an executive evening brief from priority folders.",
     ),
     Command("how are you", ("how are you", "how's it going", "how is it going"), "how_are_you", "Respond conversationally."),
     Command("hello", ("hello", "hi", "hey", "good morning", "good afternoon", "good evening"), "hello", f"Greet {user_first_name()}."),
