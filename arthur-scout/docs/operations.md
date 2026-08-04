@@ -24,6 +24,16 @@ Run:
 .\install.ps1
 ```
 
+## Update
+
+Run from a downloaded or cloned package:
+
+```powershell
+.\scripts\Update-Arthur.ps1
+```
+
+The update copies package files into the live Scratchpad, preserves `arthur.config.json`, runs config validation, preflight checks, no-side-effect voice command smoke tests, syncs automations, regenerates the dashboard, restarts Arthur, and writes `arthur_update_report.json`.
+
 Optionally register Arthur at Windows sign-in:
 
 ```powershell

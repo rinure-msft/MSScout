@@ -29,7 +29,8 @@ $RequiredSourceFiles = @(
     'arthur_cleanup_chats.py',
     'arthur_cleanup_recordings.py',
     'arthur_voice_listener_log.py',
-    'Start-Arthur.ps1'
+    'Start-Arthur.ps1',
+    'Update-Arthur.ps1'
 )
 
 $RuntimeExcludePatterns = @(

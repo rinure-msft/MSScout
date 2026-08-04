@@ -56,3 +56,7 @@ arthur-scout/
 7. Run `Start-Arthur.ps1`.
 
 Tagged releases are published from tags like `v0.2.0`. Each release asset is a clean zipped `arthur-scout` package built by GitHub Actions.
+
+## Update flow
+
+Run `scripts\Update-Arthur.ps1` from a downloaded or cloned package to copy package files into the live Scratchpad, preserve `arthur.config.json`, run config/preflight/smoke checks, sync automations, regenerate the dashboard, restart Arthur, and write `arthur_update_report.json`.

@@ -21,6 +21,7 @@ $required = @(
     'src\arthur_cleanup_recordings.py',
     'src\arthur_voice_listener_log.py',
     'scripts\Start-Arthur.ps1',
+    'scripts\Update-Arthur.ps1',
     'config\arthur.config.template.json',
     'config\voice-commands.json',
     'config\automations.template.json'
