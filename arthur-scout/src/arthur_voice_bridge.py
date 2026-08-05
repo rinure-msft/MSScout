@@ -41,6 +41,7 @@ BROWSER_STATE_FILE = SCRATCH / "arthur_browser_state.json"
 BROWSER_PROFILE_DIR = SCRATCH / "arthur_edge_profile"
 HEARTBEAT_FILE = SCRATCH / "arthur_voice_bridge_heartbeat.json"
 TTS_HEALTH_FILE = SCRATCH / "arthur_tts_health.json"
+CONVERSATION_STATE_FILE = SCRATCH / "arthur_conversation_state.json"
 WORKIQ = get_path("runtime.workiqPath", str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd"))
 EDGE_VOICE = str(get_config("voice.edgeVoice", "en-US-BrianNeural"))
 DEFAULT_TIMEZONE = str(get_config("timezone", "Mountain Standard Time"))
@@ -59,7 +60,17 @@ PENDING_WAKE_UNTIL = 0.0
 CONFIGURED_MICROPHONE_DEVICE = "the configured microphone device"
 SMOKE_TEST_MODE = False
 SMOKE_TEST_ACTIONS: list[dict[str, str]] = []
+SMOKE_CONVERSATION_STATE: dict[str, object] = {}
 SELF_EMAIL_TOKEN = "<SELF_EMAIL>"
+YES_WORDS = {"yes", "yeah", "yep", "correct", "confirm", "proceed", "do it", "please do", "that is right"}
+NO_WORDS = {"no", "nope", "cancel", "never mind", "not that", "stop that", "wrong"}
+RISKY_HANDLERS = {
+    "coreidentity_entitlement_approvals",
+    "review_all_entitlements",
+    "action_tracker",
+    "action_tracker_new_items",
+    "action_tracker_completed_items",
+}
 
 
 @dataclass(frozen=True)
@@ -79,6 +90,14 @@ class TranscriptionResult:
     segment_count: int
 
 
+@dataclass(frozen=True)
+class IntentInterpretation:
+    command: Command | None
+    confidence: float
+    source: str
+    reason: str
+
+
 class SmokeTestSpeaker:
     def __init__(self) -> None:
         self.spoken: list[str] = []
@@ -90,6 +109,141 @@ class SmokeTestSpeaker:
 def record_smoke_action(kind: str, detail: object) -> None:
     if SMOKE_TEST_MODE:
         SMOKE_TEST_ACTIONS.append({"kind": kind, "detail": str(detail)})
+
+
+def load_conversation_state() -> dict[str, object]:
+    if SMOKE_TEST_MODE:
+        return dict(SMOKE_CONVERSATION_STATE)
+    if not CONVERSATION_STATE_FILE.exists():
+        return {}
+    try:
+        data = json.loads(CONVERSATION_STATE_FILE.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_conversation_state(state: dict[str, object]) -> None:
+    global SMOKE_CONVERSATION_STATE
+    if SMOKE_TEST_MODE:
+        SMOKE_CONVERSATION_STATE = dict(state)
+        record_smoke_action("conversation_state", state)
+        return
+    write_json_atomic(CONVERSATION_STATE_FILE, state)
+
+
+def pending_clarification() -> dict[str, object] | None:
+    pending = load_conversation_state().get("pending_clarification")
+    return pending if isinstance(pending, dict) else None
+
+
+def pending_confirmation() -> dict[str, object] | None:
+    pending = load_conversation_state().get("pending_confirmation")
+    return pending if isinstance(pending, dict) else None
+
+
+def set_pending_clarification(command: Command, heard_text: str, confidence: float, reason: str) -> None:
+    state = load_conversation_state()
+    state["pending_clarification"] = {
+        "handler": command.handler,
+        "command": command.name,
+        "heard_text": heard_text,
+        "confidence": round(confidence, 3),
+        "reason": reason,
+        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+    save_conversation_state(state)
+
+
+def clear_pending_clarification() -> None:
+    state = load_conversation_state()
+    if "pending_clarification" in state:
+        state.pop("pending_clarification", None)
+        save_conversation_state(state)
+
+
+def set_pending_confirmation(command: Command, heard_text: str, reason: str) -> None:
+    state = load_conversation_state()
+    state["pending_confirmation"] = {
+        "handler": command.handler,
+        "command": command.name,
+        "heard_text": heard_text,
+        "reason": reason,
+        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+    save_conversation_state(state)
+
+
+def clear_pending_confirmation() -> None:
+    state = load_conversation_state()
+    if "pending_confirmation" in state:
+        state.pop("pending_confirmation", None)
+        save_conversation_state(state)
+
+
+def normalized_yes_no(text: str) -> str | None:
+    normalized = normalize_command_text(text)
+    if normalized in YES_WORDS:
+        return "yes"
+    if normalized in NO_WORDS:
+        return "no"
+    return None
+
+
+def summary_target_for(command: Command) -> str:
+    mapping = {
+        "daily_briefing": "daily briefing",
+        "evening_inbox_brief": "evening brief",
+        "recent_email": "recent email summary",
+        "meeting_prep": "meeting prep",
+        "missed_meeting_summary": "missed meeting summary",
+        "meeting_summary_recap": "meeting recap",
+        "leadership_watch_brief": "leadership watch brief",
+        "action_tracker": "Action Tracker",
+        "action_tracker_new_items": "Action Tracker",
+        "action_tracker_completed_items": "Action Tracker",
+        "action_tracker_review_completed": "Action Tracker completed tasks",
+    }
+    return mapping.get(command.handler, command.name)
+
+
+def remember_last_command(command: Command, heard_text: str) -> None:
+    state = load_conversation_state()
+    state["last_command"] = {
+        "handler": command.handler,
+        "command": command.name,
+        "heard_text": heard_text,
+        "summary_target": summary_target_for(command),
+        "updated_at": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+    state["last_summary_target"] = summary_target_for(command)
+    save_conversation_state(state)
+
+
+def remember_last_queue_item(prompt_id: str, prompt: str) -> None:
+    state = load_conversation_state()
+    state["last_queue_item"] = {
+        "id": prompt_id,
+        "prompt_preview": prompt[:240],
+        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+    save_conversation_state(state)
+
+
+def risk_policy_reason(command: Command) -> str | None:
+    if command.handler in RISKY_HANDLERS:
+        return "This can make approvals, Azure DevOps, or broad portal changes."
+    return None
+
+
+def execute_command(command: Command, text: str, speaker: "Speaker", confirmed: bool = False) -> bool:
+    risk_reason = risk_policy_reason(command)
+    if risk_reason and not confirmed:
+        set_pending_confirmation(command, text, risk_reason)
+        speak(speaker, f"I heard {command.name}. {risk_reason} Should I proceed?")
+        return True
+    remember_last_command(command, text)
+    return HANDLERS[command.handler](text, speaker, command)
 
 
 class Speaker:
@@ -349,6 +503,7 @@ def write_heartbeat(status: str, **extra: object) -> None:
 def speak(speaker: Speaker, text: str) -> None:
     global LAST_RESPONSE
     LAST_RESPONSE = text
+    text = style_spoken_response(text)
     if SMOKE_TEST_MODE:
         speaker.say(text)
         return
@@ -360,6 +515,29 @@ def speak(speaker: Speaker, text: str) -> None:
 def clean_transcript(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text.rstrip(" .")
+
+
+def style_spoken_response(text: str) -> str:
+    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not clean:
+        return "Done."
+    replacements = {
+        "I do not know how to do that locally yet, so I sent it to Copilot.": "I sent that to Scout.",
+        "Self-email task queued for Scout generation and delivery.": "I will send that to your inbox.",
+        "Task queued for Scout processing.": "I sent that to Scout.",
+        "Action Tracker update queued for Scout processing.": "I sent that Action Tracker request to Scout.",
+    }
+    if clean in replacements:
+        return replacements[clean]
+    if clean.startswith("Arthur Email Handoff Sender completed"):
+        return "Sent to your inbox."
+    if clean.startswith("Arthur Scout Task Handoff Processor completed"):
+        return "Done."
+    if response_needs_email(clean):
+        return concise_completion_for_speech(clean)
+    if len(clean) > MAX_COMPLETION_SPEECH_CHARS:
+        return concise_completion_for_speech(clean)
+    return clean
 
 
 def normalize_command_text(text: str) -> str:
@@ -574,10 +752,11 @@ def expand_prompt(prompt: str) -> str:
     )
 
 
-def enqueue_prompt(prompt: str) -> None:
+def enqueue_prompt(prompt: str) -> str | None:
     if SMOKE_TEST_MODE:
         record_smoke_action("enqueue_prompt", prompt[:200])
-        return
+        remember_last_queue_item("smoke-prompt", prompt)
+        return "smoke-prompt"
     prompt_id = f"prompt-{dt.datetime.now().strftime('%Y%m%d%H%M%S%f')}"
     prompt = prompt.replace(SELF_EMAIL_TOKEN, configured_self_email())
     prompt = apply_text_config(prompt)
@@ -591,6 +770,8 @@ def enqueue_prompt(prompt: str) -> None:
     }
     with PROMPT_QUEUE_FILE.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    remember_last_queue_item(prompt_id, expanded_prompt)
+    return prompt_id
 
 
 def request_service_shutdown(reason: str) -> None:
@@ -1251,6 +1432,29 @@ def h_biweekly_incident_review(text: str, speaker: Speaker, command: Command) ->
     return True
 
 
+def h_leadership_watch_brief(text: str, speaker: Speaker, command: Command) -> bool:
+    enqueue_prompt(
+        current_timestamp_protocol()
+        + " "
+        "Create a Leadership Watch Brief for Rin that synthesizes the items Shara and Jacinta are most likely to ask about this week. "
+        "Continuously aggregate and summarize signals from incidents, investigations, meetings, emails, leadership asks, Teams messages, "
+        "meeting chats, available transcripts, Azure DevOps Action Tracker items, incident documents, and related work artifacts. "
+        "Focus on these watch areas exactly: New fraud incidents; Escalations requiring executive attention; PIR status; "
+        "Engineering repair progress; Emerging attack patterns; Fairfax launch status; Compliance and audit risks. "
+        "Prioritize items by likelihood of leadership follow-up, executive urgency, operational risk, customer or partner impact, "
+        "regulatory/compliance exposure, and dependency blockers. De-duplicate overlapping signals across sources. "
+        "For each included item provide: Topic, Why Shara/Jacinta may ask, Current status, Key evidence or source signals, "
+        "Owner or accountable team if known, Risk/impact, Recommended talking points for Rin, and Next action. "
+        "Include an `Executive Questions to Prepare For` section with likely questions and crisp suggested answers. "
+        "Include a `Noisy / Low Confidence Signals` section only when there are ambiguous signals worth monitoring. "
+        "Send the completed brief as an email addressed only to <SELF_EMAIL> with subject `Leadership Watch Brief - <today's date>`. "
+        "Rin has explicitly authorized automatic sending of this leadership watch brief to himself because he is the only recipient. "
+        "Do not send if there are any recipients other than <SELF_EMAIL>. After sending, respond to Arthur with exactly: Sent to your inbox."
+    )
+    speak(speaker, "I am preparing your Leadership Watch Brief and will send it to your inbox.")
+    return True
+
+
 def h_coreidentity_entitlement_approvals(text: str, speaker: Speaker, command: Command) -> bool:
     enqueue_prompt(
         "Use Playwright/browser automation to open the Coreidentity Pending Access Approvals page at "
@@ -1466,6 +1670,7 @@ HANDLERS = {
     "meeting_summary_recap": h_meeting_summary_recap,
     "fast_mbr_review": h_fast_mbr_review,
     "biweekly_incident_review": h_biweekly_incident_review,
+    "leadership_watch_brief": h_leadership_watch_brief,
     "coreidentity_entitlement_approvals": h_coreidentity_entitlement_approvals,
     "review_all_entitlements": h_review_all_entitlements,
     "evening_inbox_brief": h_evening_inbox_brief,
@@ -1546,6 +1751,21 @@ COMMANDS = [
         ),
         "biweekly_incident_review",
         "Review the Fraud Ops Major Incidents bi-weekly review document and email the review.",
+    ),
+    Command(
+        "Leadership Watch Brief",
+        (
+            "leadership watch brief",
+            "leadership brief",
+            "shara and jacinta brief",
+            "executive watch brief",
+            "fraud leadership brief",
+            "what will leadership ask me about",
+            "what should i be ready to discuss",
+            "this week leadership asks",
+        ),
+        "leadership_watch_brief",
+        "Email a weekly leadership watch brief covering likely Shara and Jacinta asks.",
     ),
     Command(
         "Coreidentity entitlement approvals",
@@ -1749,6 +1969,62 @@ def find_command(text: str) -> Command | None:
     return best[1] if best else None
 
 
+NATURAL_INTENT_HINTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("daily_briefing", "daily briefing", ("catch me up", "morning brief", "morning briefing", "brief me on today", "what did i miss", "start my day")),
+    ("evening_inbox_brief", "evening brief", ("wrap up my day", "end of day brief", "what did i accomplish", "tomorrow focus", "evening summary")),
+    ("recent_email", "recent email", ("check my inbox", "what email needs attention", "catch me up on email", "summarize my inbox")),
+    ("meeting_prep", "meeting prep", ("get me ready for my meeting", "prepare me for my meeting", "help me prep", "prep me")),
+    ("missed_meeting_summary", "missed meeting summary", ("what meetings did i miss", "catch me up on missed meetings", "meetings i missed")),
+    ("meeting_summary_recap", "meeting summary recap", ("recap my meetings", "summarize my meetings", "meetings i attended")),
+    ("action_tracker", "action tracker", ("what should i work on", "what needs my attention", "prioritize my work", "build my task list")),
+    ("status", "status", ("how are you running", "are you working", "are you online", "system status")),
+)
+
+
+def command_by_handler(handler: str) -> Command | None:
+    for command in COMMANDS:
+        if command.handler == handler:
+            return command
+    return None
+
+
+def best_alias_match(text: str) -> tuple[Command | None, str, float]:
+    normalized = normalize_command_text(text)
+    if not normalized:
+        return None, "", 0.0
+    best: tuple[Command | None, str, float] = (None, "", 0.0)
+    for item in COMMANDS:
+        for alias in item.aliases:
+            candidate = normalize_command_text(alias.replace(" *", ""))
+            if not candidate:
+                continue
+            score = difflib.SequenceMatcher(None, normalized, candidate).ratio()
+            if score > best[2]:
+                best = (item, alias, score)
+    return best
+
+
+def interpret_intent(text: str) -> IntentInterpretation:
+    matched = find_command(text)
+    if matched:
+        return IntentInterpretation(matched, 1.0, "exact", f"Matched registered command: {matched.name}")
+
+    normalized = normalize_command_text(text)
+    for handler, phrase, hints in NATURAL_INTENT_HINTS:
+        for hint in hints:
+            hint_norm = normalize_command_text(hint)
+            if hint_norm and (hint_norm in normalized or difflib.SequenceMatcher(None, normalized, hint_norm).ratio() >= 0.82):
+                command = command_by_handler(handler)
+                if command:
+                    return IntentInterpretation(command, 0.86, "natural-language", f"Natural phrase mapped to {phrase}: {hint}")
+
+    command, alias, score = best_alias_match(text)
+    if command and score >= 0.62:
+        return IntentInterpretation(command, min(0.79, score), "similarity", f"Closest command phrase `{alias}` scored {score:.2f}")
+
+    return IntentInterpretation(None, 0.0, "none", "No command intent matched")
+
+
 def smoke_phrase(alias: str) -> str:
     if alias.endswith(" *"):
         return alias[:-2].strip() + " smoke test request"
@@ -1756,9 +2032,10 @@ def smoke_phrase(alias: str) -> str:
 
 
 def run_command_smoke_tests() -> dict[str, object]:
-    global SMOKE_TEST_MODE, SMOKE_TEST_ACTIONS, LAST_HEARD, LAST_RESPONSE, PENDING_WAKE_UNTIL
+    global SMOKE_TEST_MODE, SMOKE_TEST_ACTIONS, SMOKE_CONVERSATION_STATE, LAST_HEARD, LAST_RESPONSE, PENDING_WAKE_UNTIL
     SMOKE_TEST_MODE = True
     SMOKE_TEST_ACTIONS = []
+    SMOKE_CONVERSATION_STATE = {}
     LAST_HEARD = ""
     LAST_RESPONSE = ""
     PENDING_WAKE_UNTIL = 0.0
@@ -1854,9 +2131,42 @@ def should_ask_for_clarification(text: str, transcription: TranscriptionResult |
 
 def handle_command(text: str, speaker: Speaker, transcription: TranscriptionResult | None = None) -> bool:
     log(COMMAND_LOG, f"Command: {text}")
-    matched = find_command(text)
-    if matched:
-        return HANDLERS[matched.handler](text, speaker, matched)
+    confirmation = pending_confirmation()
+    yes_no = normalized_yes_no(text)
+    if confirmation and yes_no == "yes":
+        command = command_by_handler(str(confirmation.get("handler") or ""))
+        clear_pending_confirmation()
+        if command:
+            speak(speaker, f"Confirmed. I will run {command.name}.")
+            return execute_command(command, str(confirmation.get("heard_text") or command.aliases[0]), speaker, confirmed=True)
+    if confirmation and yes_no == "no":
+        clear_pending_confirmation()
+        speak(speaker, "Okay, I canceled that.")
+        return True
+
+    pending = pending_clarification()
+    if pending and yes_no == "yes":
+        command = command_by_handler(str(pending.get("handler") or ""))
+        clear_pending_clarification()
+        if command:
+            speak(speaker, f"Got it. I will run {command.name}.")
+            heard_text = str(pending.get("heard_text") or command.aliases[0])
+            return execute_command(command, heard_text, speaker)
+    if pending and yes_no == "no":
+        clear_pending_clarification()
+        speak(speaker, "Okay, I canceled that. Please say the command again when you are ready.")
+        return True
+
+    interpretation = interpret_intent(text)
+    matched = interpretation.command
+    if matched and interpretation.confidence >= 0.80:
+        log(COMMAND_LOG, f"Intent interpreter selected {matched.name}: confidence={interpretation.confidence:.2f}; source={interpretation.source}; {interpretation.reason}")
+        return execute_command(matched, text, speaker)
+    if matched and interpretation.confidence >= 0.62:
+        set_pending_clarification(matched, text, interpretation.confidence, interpretation.reason)
+        log(COMMAND_LOG, f"Asked intent clarification: {text}; candidate={matched.name}; confidence={interpretation.confidence:.2f}; {interpretation.reason}")
+        speak(speaker, f"I think you meant {matched.name}. Should I run that?")
+        return True
 
     should_clarify, reason = should_ask_for_clarification(text, transcription, matched)
     if should_clarify:

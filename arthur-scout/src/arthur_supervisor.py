@@ -16,6 +16,7 @@ PROMPT_WORKER_SCRIPT = SCRATCH / "arthur_prompt_worker.py"
 CLEANUP_SCRIPT = SCRATCH / "arthur_cleanup_recordings.py"
 CHAT_CLEANUP_SCRIPT = SCRATCH / "arthur_cleanup_chats.py"
 WATCHDOG_SCRIPT = SCRATCH / "arthur_queue_watchdog.py"
+DASHBOARD_SCRIPT = SCRATCH / "arthur_status_dashboard.py"
 AUTOMATION_FILE = get_path("runtime.automationFile", str(pathlib.Path.home() / ".copilot" / "m-automations" / "automations.json"))
 SUPERVISOR_LOG = SCRATCH / "arthur_supervisor.log"
 HEARTBEAT_FILE = SCRATCH / "arthur_voice_bridge_heartbeat.json"
@@ -351,6 +352,20 @@ def run_chat_cleanup() -> None:
         log(f"Chat cleanup failed: {(result.stderr or result.stdout).strip()[:1500]}")
 
 
+def run_dashboard_refresh() -> None:
+    if not DASHBOARD_SCRIPT.exists():
+        log(f"Arthur status dashboard script not found: {DASHBOARD_SCRIPT}")
+        return
+    result = subprocess.run(
+        [sys.executable, str(DASHBOARD_SCRIPT)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if result.returncode != 0:
+        log(f"Dashboard refresh failed: {(result.stderr or result.stdout).strip()[:1500]}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Arthur local runtime supervisor.")
     parser.add_argument("--mic-device", type=int, default=int(os.environ.get("ARTHUR_MIC_DEVICE", str(get_config("microphone.deviceIndex", 1)))))
@@ -362,6 +377,7 @@ def main() -> int:
     parser.add_argument("--stale-worker-heartbeat-seconds", type=int, default=300)
     parser.add_argument("--stale-prompt-seconds", type=int, default=300)
     parser.add_argument("--browser-idle-minutes", type=int, default=30)
+    parser.add_argument("--dashboard-refresh-seconds", type=int, default=120)
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
 
@@ -369,6 +385,7 @@ def main() -> int:
     last_cleanup = 0.0
     last_chat_cleanup = 0.0
     last_watchdog = 0.0
+    last_dashboard = 0.0
     log("Arthur supervisor started.")
     while True:
         ensure_automation_ownership()
@@ -385,6 +402,9 @@ def main() -> int:
         if time.monotonic() - last_chat_cleanup > float(get_config("runtime.chatCleanupIntervalMinutes", 45)) * 60:
             run_chat_cleanup()
             last_chat_cleanup = time.monotonic()
+        if time.monotonic() - last_dashboard > args.dashboard_refresh_seconds:
+            run_dashboard_refresh()
+            last_dashboard = time.monotonic()
         if args.once:
             return 0
         time.sleep(args.interval_seconds)

@@ -55,7 +55,7 @@ arthur-scout/
 6. Fill `arthur.config.json` placeholders.
 7. Run `Start-Arthur.ps1`.
 
-Tagged releases are published from tags like `v0.2.0`. Each release asset is a clean zipped `arthur-scout` package built by GitHub Actions.
+Tagged releases are published from tags like `v0.3.0`. Each release asset is a clean zipped `arthur-scout` package built by GitHub Actions.
 
 ## Update flow
 
