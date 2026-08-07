@@ -10,6 +10,9 @@ on:
       - "arthur-scout/**"
       - ".github/workflows/arthur-ci.yml"
 
+permissions:
+  contents: read
+
 jobs:
   arthur-package:
     name: Validate Arthur package
