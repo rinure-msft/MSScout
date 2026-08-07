@@ -583,6 +583,8 @@ main {{ max-width: 1280px; margin: 0 auto; padding: 32px; }}
   margin-bottom: 20px;
 }}
 .hero-top, .card-title {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }}
+.brand-lockup {{ display: flex; align-items: center; gap: 12px; }}
+.brand-mark {{ flex: 0 0 auto; width: 32px; height: 32px; }}
 h1, h2, h3, p {{ margin-top: 0; }}
 h1 {{ font-size: 32px; margin-bottom: 8px; }}
 h2 {{ font-size: 20px; margin-bottom: 8px; }}
@@ -637,9 +639,12 @@ button:hover {{ background: var(--cp-accent-hover); }}
 <main>
   <section class="hero">
     <div class="hero-top">
-      <div>
+      <div class="brand-lockup">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="arthur-mark-gradient" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse"><stop stop-color="#fd8ea1"/><stop offset="1" stop-color="#b11f4b"/></linearGradient></defs><circle cx="16" cy="16" r="11" fill="none" stroke="url(#arthur-mark-gradient)" stroke-width="5"/></svg>
+        <div>
         <h1>Arthur Status Dashboard</h1>
         <p class="muted">Generated {esc(generated_at)} from live Arthur files in <code>{esc(SCRATCH)}</code>.</p>
+        </div>
       </div>
       {badge(severity, summary)}
     </div>

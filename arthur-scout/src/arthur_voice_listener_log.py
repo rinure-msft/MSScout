@@ -2,8 +2,8 @@ import os, time
 import numpy as np
 import sounddevice as sd
 from scipy.io import wavfile
-from faster_whisper import WhisperModel
 from arthur_config import get_config, get_path, user_first_name
+from arthur_speech import build_transcriber
 
 mic = int(os.environ.get('ARTHUR_MIC_DEVICE', str(get_config('microphone.deviceIndex', 1))))
 fs = 16000
@@ -20,7 +20,7 @@ def emit(line):
 
 state.write_text(f'active mic={mic} name={sd.query_devices(mic)["name"]}\n', encoding='utf-8')
 emit(f'[{time.strftime("%Y-%m-%d %H:%M:%S")}] Arthur voice listener active on mic index {mic}: {sd.query_devices(mic)["name"]}')
-model = WhisperModel('tiny.en', device='cpu', compute_type='int8')
+model = build_transcriber()
 count = 0
 while True:
     count += 1
@@ -33,7 +33,6 @@ while True:
         continue
     path = scratch / f'arthur_live_instruction_{count:04d}.wav'
     wavfile.write(str(path), fs, audio)
-    segments, info = model.transcribe(str(path), beam_size=1, vad_filter=True)
-    text = ' '.join(s.text.strip() for s in segments).strip()
+    text = model.transcribe(audio, fs).text
     if text:
         emit(f'[{time.strftime("%Y-%m-%d %H:%M:%S")}] {user_first_name()} said: {text}')

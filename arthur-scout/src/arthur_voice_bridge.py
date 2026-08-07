@@ -21,10 +21,9 @@ import numpy as np
 import pyttsx3
 import pygame
 import sounddevice as sd
-from faster_whisper import WhisperModel
-from scipy.io import wavfile
 
 from arthur_config import CONFIG, apply_text_config, get_config, get_path, self_email, user_first_name, user_display_name
+from arthur_speech import SpeechTranscriber, TranscriptionResult, build_transcriber
 
 
 SCRATCH = get_path("runtime.scratchpadPath", str(pathlib.Path(__file__).resolve().parent))
@@ -33,30 +32,54 @@ COMMAND_LOG = SCRATCH / "arthur_voice_bridge_commands.log"
 NOTES_FILE = SCRATCH / "arthur_voice_notes.txt"
 DAILY_TASKS_FILE = SCRATCH / "arthur_daily_tasks.md"
 VOICE_COMMAND_INDEX_FILE = SCRATCH / "arthur_voice_command_index.md"
+ACTION_TRACKER_STATE_FILE = SCRATCH / "arthur_action_tracker_state.json"
 PROMPT_QUEUE_FILE = SCRATCH / "arthur_prompt_queue.jsonl"
 PROMPT_RESPONSE_FILE = SCRATCH / "arthur_prompt_responses.jsonl"
 PROMPT_RESPONSE_STATE_FILE = SCRATCH / "arthur_prompt_response_state.json"
 SHUTDOWN_REQUEST_FILE = SCRATCH / "arthur_shutdown_request.json"
 BROWSER_STATE_FILE = SCRATCH / "arthur_browser_state.json"
-BROWSER_PROFILE_DIR = get_path("runtime.browserProfilePath", str(pathlib.Path(os.environ.get("LOCALAPPDATA", pathlib.Path.home() / "AppData" / "Local")) / "Arthur" / "EdgeProfile"))
+BROWSER_PROFILE_DIR = get_path(
+    "runtime.browserProfilePath",
+    str(
+        pathlib.Path(
+            os.environ.get(
+                "LOCALAPPDATA",
+                pathlib.Path.home() / "AppData" / "Local",
+            )
+        )
+        / "Arthur"
+        / "EdgeProfile"
+    ),
+)
 HEARTBEAT_FILE = SCRATCH / "arthur_voice_bridge_heartbeat.json"
 TTS_HEALTH_FILE = SCRATCH / "arthur_tts_health.json"
 CONVERSATION_STATE_FILE = SCRATCH / "arthur_conversation_state.json"
 WORKIQ = get_path("runtime.workiqPath", str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd"))
-EDGE_VOICE = str(get_config("voice.edgeVoice", "en-US-BrianNeural"))
-ARTHUR_DASHBOARD_URL = f"http://127.0.0.1:{int(get_config('dashboard.port', 8765))}/dashboard"
-DEFAULT_TIMEZONE = str(get_config("timezone", "Mountain Standard Time"))
+ARTHUR_DASHBOARD_URL = (
+    f"http://127.0.0.1:"
+    f"{int(get_config('dashboard.port', 8765))}/dashboard"
+)
+EDGE_VOICE = str(get_config("voice.edgeVoice", "en-GB-RyanNeural"))
+EDGE_RATE = str(get_config("voice.edgeRate", "+10%"))
+EDGE_PITCH = str(get_config("voice.edgePitch", "+0Hz"))
+EDGE_VOLUME = str(get_config("voice.edgeVolume", "+0%"))
+WINDOWS_VOICE_ID = str(get_config("voice.windowsVoiceId", ""))
+WINDOWS_RATE = int(get_config("voice.windowsRate", 180))
+WINDOWS_VOLUME = float(get_config("voice.windowsVolume", 1.0))
+DEFAULT_TIMEZONE = str(get_config("timezone", "Europe/London"))
 MAX_SPEECH_CHUNK_CHARS = 260
 MAX_COMPLETION_SPEECH_CHARS = 280
 TTS_HEALTH_INTERVAL_SECONDS = 300
 MIN_TRANSCRIBE_RMS = float(get_config("microphone.minTranscribeRms", 120.0))
 MIN_TRANSCRIBE_PEAK = int(get_config("microphone.minTranscribePeak", 700))
 WINDOWS_TIMEZONE_ALIASES = {
+    "GMT Standard Time": "Europe/London",
     "Mountain Standard Time": "America/Denver",
 }
 EMAIL_FOLDERS = tuple(str(folder) for folder in get_config("emailFolders", []))
 LAST_HEARD = ""
 LAST_RESPONSE = ""
+LAST_ACTIVATION_ID = ""
 PENDING_WAKE_UNTIL = 0.0
 CONFIGURED_MICROPHONE_DEVICE = "the configured microphone device"
 SMOKE_TEST_MODE = False
@@ -72,6 +95,25 @@ RISKY_HANDLERS = {
     "action_tracker_new_items",
     "action_tracker_completed_items",
 }
+SCOUT_QUEUE_HANDLERS = {
+    "voice_command_index",
+    "daily_briefing",
+    "daily_tasks",
+    "daily_briefing_task_list",
+    "missed_meeting_summary",
+    "meeting_summary_recap",
+    "fast_mbr_review",
+    "biweekly_incident_review",
+    "leadership_watch_brief",
+    "coreidentity_entitlement_approvals",
+    "review_all_entitlements",
+    "evening_inbox_brief",
+    "action_tracker",
+    "action_tracker_new_items",
+    "action_tracker_completed_items",
+    "action_tracker_review_completed",
+    "prompt_window",
+}
 
 
 @dataclass(frozen=True)
@@ -80,15 +122,6 @@ class Command:
     aliases: tuple[str, ...]
     handler: str
     description: str
-
-
-@dataclass(frozen=True)
-class TranscriptionResult:
-    text: str
-    avg_logprob: float | None
-    no_speech_prob: float | None
-    compression_ratio: float | None
-    segment_count: int
 
 
 @dataclass(frozen=True)
@@ -187,7 +220,10 @@ def clear_pending_confirmation() -> None:
         save_conversation_state(state)
 
 
-def set_pending_note(parts: list[str] | None = None, stage: str = "collecting") -> None:
+def set_pending_note(
+    parts: list[str] | None = None,
+    stage: str = "collecting",
+) -> None:
     state = load_conversation_state()
     state["pending_note"] = {
         "parts": parts or [],
@@ -213,10 +249,20 @@ def normalized_yes_no(text: str) -> str | None:
     return None
 
 
-def confirmation_instruction(command: Command, heard_text: object) -> str:
+def confirmation_instruction(
+    command: Command,
+    heard_text: object,
+) -> str:
     raw_instruction = str(heard_text or "")
-    instruction_without_wake = strip_wake_word(raw_instruction, "Arthur")
-    instruction = normalize_command_text(instruction_without_wake if instruction_without_wake is not None else raw_instruction)
+    instruction_without_wake = strip_wake_word(
+        raw_instruction,
+        str(get_config("assistantName", "Arthur")),
+    )
+    instruction = normalize_command_text(
+        instruction_without_wake
+        if instruction_without_wake is not None
+        else raw_instruction
+    )
     return instruction if instruction else command.aliases[0]
 
 
@@ -267,6 +313,19 @@ def risk_policy_reason(command: Command) -> str | None:
 
 
 def execute_command(command: Command, text: str, speaker: "Speaker", confirmed: bool = False) -> bool:
+    if (
+        command.handler in SCOUT_QUEUE_HANDLERS
+        and not bool(get_config("scout.queueEnabled", True))
+    ):
+        log(
+            COMMAND_LOG,
+            f"Blocked Scout queue command while disabled: {command.handler}",
+        )
+        speak(
+            speaker,
+            "Scout queueing is turned off in Arthur's configuration.",
+        )
+        return True
     risk_reason = risk_policy_reason(command)
     if risk_reason and not confirmed:
         set_pending_confirmation(command, text, risk_reason)
@@ -277,19 +336,44 @@ def execute_command(command: Command, text: str, speaker: "Speaker", confirmed: 
 
 
 class Speaker:
-    def __init__(self, mode: str, edge_voice: str) -> None:
+    def __init__(
+        self,
+        mode: str,
+        edge_voice: str,
+        edge_rate: str,
+        edge_pitch: str,
+        edge_volume: str,
+        windows_voice_id: str,
+        windows_rate: int,
+        windows_volume: float,
+    ) -> None:
         self.mode = mode
         self.edge_voice = edge_voice
-        self.pyttsx3_engine = pyttsx3.init()
+        self.edge_rate = edge_rate
+        self.edge_pitch = edge_pitch
+        self.edge_volume = edge_volume
+        self.pyttsx3_engine = None
         self.edge_count = 0
         self.last_tts_health_check = 0.0
         self.lock = threading.Lock()
         if self.mode == "edge":
             self._recover_edge_tts("startup")
             self.check_tts_health(force=True)
+        else:
+            self.pyttsx3_engine = pyttsx3.init()
+            if windows_voice_id:
+                self.pyttsx3_engine.setProperty("voice", windows_voice_id)
+            self.pyttsx3_engine.setProperty("rate", windows_rate)
+            self.pyttsx3_engine.setProperty("volume", windows_volume)
 
     async def _save_edge_tts(self, text: str, path: pathlib.Path) -> None:
-        communicate = edge_tts.Communicate(text, self.edge_voice)
+        communicate = edge_tts.Communicate(
+            text,
+            self.edge_voice,
+            rate=self.edge_rate,
+            pitch=self.edge_pitch,
+            volume=self.edge_volume,
+        )
         await communicate.save(str(path))
 
     def _write_tts_health(self, status: str, **extra: object) -> None:
@@ -393,6 +477,8 @@ class Speaker:
                 log(COMMAND_LOG, f"Speech completed: mode=edge chunks={spoken_chunks}/{len(chunks)} chars={len(text)} duration={duration:.1f}s")
                 return
 
+            if self.pyttsx3_engine is None:
+                raise RuntimeError("Windows TTS engine is not initialized")
             self.pyttsx3_engine.say(text)
             self.pyttsx3_engine.runAndWait()
             duration = time.monotonic() - started
@@ -522,12 +608,19 @@ def write_heartbeat(status: str, **extra: object) -> None:
         "status": status,
         "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
         "pid": os.getpid(),
+        "activation_id": LAST_ACTIVATION_ID,
         **extra,
     }
     try:
         write_json_atomic(HEARTBEAT_FILE, payload)
     except OSError as exc:
         log(COMMAND_LOG, f"Heartbeat write failed: {type(exc).__name__}: {exc}")
+
+
+def mark_activation(**extra: object) -> None:
+    global LAST_ACTIVATION_ID
+    LAST_ACTIVATION_ID = str(time.time_ns())
+    write_heartbeat("activated", **extra)
 
 
 def speak(speaker: Speaker, text: str) -> None:
@@ -580,11 +673,14 @@ def strip_wake_word(text: str, wake_word: str) -> str | None:
     stripped = text.strip()
     lowered = stripped.lower()
     wake = re.escape(wake_word.lower())
-    if lowered == wake_word.lower():
+    prefix = rf"(?:(?:hey|hay|hi|ok|okay)[\s,]+)?{wake}"
+    if re.fullmatch(prefix, lowered, flags=re.IGNORECASE):
         return ""
-    match = re.match(rf"^{wake}[\s,.:;!-]+(?P<command>.*)$", lowered, flags=re.IGNORECASE)
-    if not match:
-        match = re.search(rf"(?<!\w){wake}[\s,.:;!-]+(?P<command>.*)$", lowered, flags=re.IGNORECASE)
+    match = re.match(
+        rf"^{prefix}[\s,.:;!-]+(?P<command>.*)$",
+        lowered,
+        flags=re.IGNORECASE,
+    )
     if not match:
         return None
     return stripped[match.start("command") :].strip(" ,.:;-")
@@ -681,20 +777,37 @@ def should_transcribe(audio: np.ndarray, threshold: float) -> bool:
     return rms >= min(MIN_TRANSCRIBE_RMS, threshold * 0.75) or peak >= MIN_TRANSCRIBE_PEAK
 
 
-def transcribe_audio(model: WhisperModel, path: pathlib.Path) -> TranscriptionResult:
-    segments_iter, _ = model.transcribe(str(path), beam_size=1, vad_filter=True)
-    segments = list(segments_iter)
-    text = clean_transcript(" ".join(segment.text.strip() for segment in segments))
-    avg_logprobs = [float(segment.avg_logprob) for segment in segments if getattr(segment, "avg_logprob", None) is not None]
-    no_speech_probs = [float(segment.no_speech_prob) for segment in segments if getattr(segment, "no_speech_prob", None) is not None]
-    compression_ratios = [float(segment.compression_ratio) for segment in segments if getattr(segment, "compression_ratio", None) is not None]
-    return TranscriptionResult(
-        text=text,
-        avg_logprob=(sum(avg_logprobs) / len(avg_logprobs)) if avg_logprobs else None,
-        no_speech_prob=max(no_speech_probs) if no_speech_probs else None,
-        compression_ratio=max(compression_ratios) if compression_ratios else None,
-        segment_count=len(segments),
-    )
+def resolve_input_device(configured_index: int):
+    try:
+        configured = sd.query_devices(configured_index)
+        if int(configured.get("max_input_channels", 0)) > 0:
+            return configured_index, configured
+    except Exception:
+        pass
+
+    devices = list(sd.query_devices())
+    try:
+        default_input = int(sd.default.device[0])
+    except (TypeError, ValueError):
+        default_input = -1
+    candidate_indexes = [default_input] + list(range(len(devices)))
+    checked: set[int] = set()
+    for index in candidate_indexes:
+        if index < 0 or index in checked or index >= len(devices):
+            continue
+        checked.add(index)
+        device = devices[index]
+        if int(device.get("max_input_channels", 0)) > 0:
+            return index, device
+    raise RuntimeError("Arthur could not find an input microphone.")
+
+
+def transcribe_audio(
+    model: SpeechTranscriber,
+    audio: np.ndarray,
+    samplerate: int,
+) -> TranscriptionResult:
+    return model.transcribe(audio, samplerate)
 
 
 def open_process(command: list[str]) -> None:
@@ -751,10 +864,17 @@ def pending_note_parts(note_state: dict[str, object]) -> list[str]:
     parts = note_state.get("parts")
     if not isinstance(parts, list):
         return []
-    return [str(part).strip() for part in parts if str(part).strip()]
+    return [
+        str(part).strip()
+        for part in parts
+        if str(part).strip()
+    ]
 
 
-def append_pending_note_part(note_state: dict[str, object], text: str) -> list[str]:
+def append_pending_note_part(
+    note_state: dict[str, object],
+    text: str,
+) -> list[str]:
     parts = pending_note_parts(note_state)
     segment = clean_transcript(text)
     if segment:
@@ -764,13 +884,16 @@ def append_pending_note_part(note_state: dict[str, object], text: str) -> list[s
 
 def complete_note(note: str) -> None:
     take_note(note)
+    if not bool(get_config("scout.queueEnabled", True)):
+        return
     recipient = configured_self_email()
     enqueue_prompt(
-        f"Send an email addressed only to {recipient} with subject `Arthur Note - <today's date>`. "
-        "Put the note below in the email body. Do not add any other To, CC, or BCC recipients. "
+        f"Send an email addressed only to {recipient} with subject "
+        "`Arthur Note - <today's date>`. Put the note below in the "
+        "email body. Do not add any other To, CC, or BCC recipients. "
         f"Do not send if there are any recipients other than {recipient}. "
-        "After sending, respond to Arthur with exactly: Sent to your inbox.\n\n"
-        f"{note}"
+        "After sending, respond to Arthur with exactly: Sent to your "
+        f"inbox.\n\n{note}"
     )
 
 
@@ -794,22 +917,28 @@ def expand_prompt(prompt: str) -> str:
     )
     if not is_tracker_refresh:
         return prompt
+    tracker_path = SCRATCH / "arthur_workstream_tracker.md"
+    owner = user_display_name()
+    first_name = user_first_name()
     return (
-        "Refresh Arthur's workstream tracker for Rin. Scan recent Outlook email, Teams messages/chats, "
-        "and any available meeting transcripts or meeting chats for asks and relevant updates. Look for "
-        "new or changed workstreams tied to Shara, Jacinta, Fraud Ops, Vet Ops, PLTO, ROB/MOR, L1/L2/L3 "
-        "metrics, Bluehawk, Vendor AI KPI, Project Nova, CI, SharePoint, Documentation, ARIS updates and "
-        "workflows. Update `C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\"
-        "arthur_workstream_tracker.md` using these columns exactly: Done | Title | Type | Owner | Status | "
+        f"Refresh Arthur's workstream tracker for {owner}. Scan recent Outlook email, Teams messages, "
+        "Teams chats and available meeting transcripts for asks and relevant updates. Update "
+        f"`{tracker_path}` using these columns exactly: Done | Title | Type | Owner | Status | "
         "Priority | Next Action | Next Due Date | Last Updated | Notes/Update. Add new rows for distinct "
-        "new workstreams. Update existing rows when owner, action, deadline, status, priority, or notes "
-        "change. Use month-day date format. Keep the digest concise and only for Rin's use. If the mail, "
-        "Teams, or meeting-transcript scan fails, keep/send the last known tracker and clearly note which "
+        "new workstreams. Update existing rows when owner, action, deadline, status, priority or notes "
+        f"change. Use month-day date format. Keep the digest concise and only for {first_name}'s use. If the mail, "
+        "Teams or meeting-transcript scan fails, keep/send the last known tracker and clearly note which "
         "refresh source failed."
     )
 
 
-def enqueue_prompt(prompt: str) -> str | None:
+def enqueue_prompt(
+    prompt: str,
+    authorization: str = "enabled_command",
+) -> str | None:
+    if not bool(get_config("scout.queueEnabled", True)):
+        log(COMMAND_LOG, "Blocked Scout queue entry because queueing is disabled.")
+        return None
     if SMOKE_TEST_MODE:
         record_smoke_action("enqueue_prompt", prompt[:200])
         remember_last_queue_item("smoke-prompt", prompt)
@@ -824,6 +953,8 @@ def enqueue_prompt(prompt: str) -> str | None:
         "status": "pending",
         "prompt": expanded_prompt,
         "spoken_prompt": prompt,
+        "source": "voice",
+        "authorization": authorization,
     }
     with PROMPT_QUEUE_FILE.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -1034,8 +1165,8 @@ def command_matches(text: str, alias: str) -> bool:
     alias = normalize_command_text(alias)
     if alias.endswith(" *"):
         prefix = alias[:-2].strip()
-        return text == prefix or text.startswith(prefix + " ")
-    return text == alias or re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", text) is not None
+        return text.startswith(prefix + " ")
+    return text == alias
 
 
 def extract_after_alias(text: str, aliases: tuple[str, ...]) -> str:
@@ -1071,7 +1202,7 @@ def h_help(text: str, speaker: Speaker, command: Command) -> bool:
 def h_voice_command_index(text: str, speaker: Speaker, command: Command) -> bool:
     write_voice_command_index()
     enqueue_prompt(
-        "Read `C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_voice_command_index.md` "
+        f"Read `{VOICE_COMMAND_INDEX_FILE}` "
         "and send the full contents to Rin in the Microsoft Scout Teams chat. Use the Microsoft Scout Teams relay/message tool "
         "if available. Rin explicitly requested this voice command to send Arthur's Voice Command Index to that chat. "
         "The content is Arthur's local command registry only; do not include private Microsoft 365 data, and do not send to anyone else. "
@@ -1121,12 +1252,20 @@ def h_open_browser(text: str, speaker: Speaker, command: Command) -> bool:
     return True
 
 
-def h_open_dashboard(text: str, speaker: Speaker, command: Command) -> bool:
+def h_open_dashboard(
+    text: str,
+    speaker: Speaker,
+    command: Command,
+) -> bool:
     try:
         open_tracked_browser(ARTHUR_DASHBOARD_URL)
     except OSError as exc:
         webbrowser.open(ARTHUR_DASHBOARD_URL)
-        log(COMMAND_LOG, f"Tracked dashboard launch failed: {type(exc).__name__}: {exc}")
+        log(
+            COMMAND_LOG,
+            "Tracked dashboard launch failed: "
+            f"{type(exc).__name__}: {exc}",
+        )
     speak(speaker, "Opening the Arthur dashboard.")
     return True
 
@@ -1179,7 +1318,10 @@ def h_open_folder(text: str, speaker: Speaker, command: Command) -> bool:
 def h_take_note(text: str, speaker: Speaker, command: Command) -> bool:
     note = extract_after_alias(text, command.aliases)
     if note:
-        set_pending_note([clean_transcript(note)], stage="confirming")
+        set_pending_note(
+            [clean_transcript(note)],
+            stage="confirming",
+        )
         speak(speaker, "Does that complete your note?")
         return True
     set_pending_note(stage="collecting")
@@ -1380,12 +1522,13 @@ def h_daily_tasks(text: str, speaker: Speaker, command: Command) -> bool:
 
 def h_daily_briefing_task_list(text: str, speaker: Speaker, command: Command) -> bool:
     today = current_time(os.environ.get("ARTHUR_TIMEZONE", DEFAULT_TIMEZONE)).strftime("%Y-%m-%d")
+    workbook_path = SCRATCH / f"Daily Briefing Task List {today}.xlsx"
     enqueue_prompt(
         "Create a Daily Briefing task list workbook for Rin. First find the latest Daily Briefing email sent to "
         "<SELF_EMAIL> for today; if today's email is not available, use the most recent Daily Briefing email "
         "sent to <SELF_EMAIL>. Pull the action items from the Catch Up list, especially Actions Needed, "
         "dedupe overlapping items, prioritize them by urgency and immediacy, and create an Excel workbook named "
-        f"`C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\Daily Briefing Task List {today}.xlsx`. "
+        f"`{workbook_path}`. "
         "The workbook must contain one worksheet named `Task List` formatted as a table with these columns: "
         "Done, Priority Rank, Urgency, Title, Required Action, Why It Matters, Source Theme, Source Daily Briefing Email, Notes. "
         "For each task, include a hyperlink in `Source Daily Briefing Email` back to the Daily Briefing email used as the source. "
@@ -1515,16 +1658,16 @@ def h_leadership_watch_brief(text: str, speaker: Speaker, command: Command) -> b
         "Owner or accountable team if known, Risk/impact, Recommended talking points for Rin, and Next action. "
         "Include an `Executive Questions to Prepare For` section with likely questions and crisp suggested answers. "
         "Include a `Noisy / Low Confidence Signals` section only when there are ambiguous signals worth monitoring. "
-        "Format the email for fast executive consumption using HTML or rich email formatting. Use this exact structure: "
-        "1) `Executive Summary` with 3-5 concise bullets and bold labels `Theme`, `Why it matters`, and `Rin's posture`. "
-        "2) `Top Watch Items` as a table with columns: Priority, Topic, Leadership Likely Ask, Current Status, Risk Level, Owner, Next Action. "
-        "Use priority labels P0/P1/P2, and use risk labels High/Medium/Low. "
-        "3) `Watch Areas` with one subsection for each required watch area: New fraud incidents, Escalations requiring executive attention, PIR status, "
-        "Engineering repair progress, Emerging attack patterns, Fairfax launch status, Compliance and audit risks. "
-        "Under each watch-area subsection, use compact cards or bullets with bold labels: `What changed:`, `Why leadership may ask:`, `Evidence:`, `Rin talking point:`, and `Next action:`. "
+        "Format the email for fast executive consumption using HTML or rich email formatting. "
+        "Use this exact structure: "
+        "1) `Executive Summary` with 3-5 concise bullets and bold labels `Theme`, `Why it matters` and `Rin's posture`. "
+        "2) `Top Watch Items` as a table with columns: Priority, Topic, Leadership Likely Ask, Current Status, Risk Level, Owner and Next Action. "
+        "Use priority labels P0/P1/P2 and risk labels High/Medium/Low. "
+        "3) `Watch Areas` with one subsection for each required watch area. "
+        "Under each subsection, use compact cards or bullets with bold labels: `What changed:`, `Why leadership may ask:`, `Evidence:`, `Rin talking point:` and `Next action:`. "
         "4) `Executive Questions to Prepare For` as a two-column table: Likely Question and Suggested Answer. "
         "5) `Source Notes` with a short list of source types reviewed and any important coverage gaps. "
-        "Keep the brief scannable: bold section headings, short bullets, no raw message dumps, no long URLs in the body; use descriptive source names instead. "
+        "Keep the brief scannable with short bullets, no raw message dumps and no long URLs in the body. "
         "Send the completed brief as an email addressed only to <SELF_EMAIL> with subject `Leadership Watch Brief - <today's date>`. "
         "Rin has explicitly authorized automatic sending of this leadership watch brief to himself because he is the only recipient. "
         "Do not send if there are any recipients other than <SELF_EMAIL>. After sending, respond to Arthur with exactly: Sent to your inbox."
@@ -1615,7 +1758,7 @@ def h_action_tracker(text: str, speaker: Speaker, command: Command) -> bool:
         "Create or update Arthur's Action Tracker for Rin. Review all relevant Teams messages/chats, Outlook email, "
         "calendar events, meeting summaries, meeting chats, and available transcripts for items that need Rin's attention. "
         "Use Azure DevOps as the canonical tracker at `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker`. Read tracker "
-        "configuration from `C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_action_tracker_state.json`. "
+        f"configuration from `{ACTION_TRACKER_STATE_FILE}`. "
         "Create or update ADO work items for distinct action items, using work item type `Task` unless that project does not support it; "
         "if `Task` is unavailable, use the closest available work item type and state that in the response. Tag every item with "
         "`ArthurActionTracker`. Assign every new work item and every updated active Action Tracker work item to Rin Ure (<SELF_EMAIL>) "
@@ -1634,7 +1777,7 @@ def h_action_tracker(text: str, speaker: Speaker, command: Command) -> bool:
 def h_action_tracker_new_items(text: str, speaker: Speaker, command: Command) -> bool:
     enqueue_prompt(
         "Update Arthur's existing Azure DevOps Action Tracker with new items. Read the tracker configuration from "
-        "`C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_action_tracker_state.json`. "
+        f"`{ACTION_TRACKER_STATE_FILE}`. "
         "Review recent Teams messages/chats, Outlook email, calendar events, meeting summaries, meeting chats, and available transcripts "
         "for new action items that are not already in ADO. Use Azure DevOps at `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker`. "
         "Add only distinct new work items tagged `ArthurActionTracker` and assign them to Rin Ure (<SELF_EMAIL>) unless Rin explicitly names a different assignee, preserving Priority, Item to be completed, Description, Due Date, Next Action, "
@@ -1650,7 +1793,7 @@ def h_action_tracker_new_items(text: str, speaker: Speaker, command: Command) ->
 def h_action_tracker_completed_items(text: str, speaker: Speaker, command: Command) -> bool:
     enqueue_prompt(
         "Update Arthur's Azure DevOps Action Tracker for completed items. Read the tracker configuration from "
-        "`C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_action_tracker_state.json`. "
+        f"`{ACTION_TRACKER_STATE_FILE}`. "
         "Review the spoken command and recent context to identify items that Rin indicated are complete. Find matching ADO work items tagged "
         "`ArthurActionTracker` in `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker`. Move matching items to the project's completed "
         "state such as Done, Closed, or Completed, keep or set Assigned To as Rin Ure (<SELF_EMAIL>) unless Rin explicitly names a different assignee, and preserve Description, Due Date, Next Action, Owner, Source, and notes/comments. If the spoken "
@@ -1665,7 +1808,7 @@ def h_action_tracker_completed_items(text: str, speaker: Speaker, command: Comma
 def h_action_tracker_review_completed(text: str, speaker: Speaker, command: Command) -> bool:
     enqueue_prompt(
         "Review Arthur's completed Azure DevOps Action Tracker tasks. Read the tracker configuration from "
-        "`C:\\Users\\riur\\OneDrive - Microsoft\\Documents\\Microsoft Scout\\Scratchpad\\arthur_action_tracker_state.json`. "
+        f"`{ACTION_TRACKER_STATE_FILE}`. "
         "Use Azure DevOps at `https://dev.azure.com/FraudOps/Fraud%20Ops%20AI%20Tracker` to review completed work items tagged `ArthurActionTracker`. "
         "Summarize the completed ADO items with their notes/comments, priority, completion date if available, owner, and current state. Send an email "
         "addressed only to <SELF_EMAIL> with a concise completed-task summary, the relevant notes, and ADO tracker/work item links. Do not send to anyone else. If Playwright/browser automation is used, close "
@@ -1680,8 +1823,11 @@ def h_prompt_window(text: str, speaker: Speaker, command: Command) -> bool:
     if not prompt:
         speak(speaker, "What should I send to this window?")
         return True
-    enqueue_prompt(prompt)
-    speak(speaker, "I sent that prompt to this window.")
+    log(COMMAND_LOG, f"Blocked arbitrary voice handoff: {prompt}")
+    speak(
+        speaker,
+        "For safety, enter arbitrary Scout prompts directly in Scout.",
+    )
     return True
 
 
@@ -1902,7 +2048,17 @@ COMMANDS = [
     Command("open notepad", ("notepad", "note pad", "open notepad", "open note pad"), "open_notepad", "Open Notepad."),
     Command("close browser", ("close browser", "close edge", "close the browser", "close the browser you opened"), "close_browser", "Close the browser Arthur opened."),
     Command("open browser", ("browser", "edge", "open browser", "open edge"), "open_browser", "Open browser."),
-    Command("open dashboard", ("open dashboard", "open arthur dashboard", "arthur dashboard", "status dashboard"), "open_dashboard", "Open the Arthur dashboard at its localhost URL."),
+    Command(
+        "open dashboard",
+        (
+            "open dashboard",
+            "open arthur dashboard",
+            "arthur dashboard",
+            "status dashboard",
+        ),
+        "open_dashboard",
+        "Open the local Arthur status dashboard.",
+    ),
     Command("open Copilot", ("open copilot", "copilot"), "open_copilot", "Open Copilot."),
     Command("search web", ("search for *", "search the web for *", "look up *", "bing *"), "web_search", "Search the web."),
     Command("open scratchpad", ("open scratchpad",), "open_scratchpad", "Open Scratchpad."),
@@ -2018,6 +2174,29 @@ COMMANDS = [
 ]
 
 
+ALWAYS_ENABLED_HANDLERS = {
+    "stop",
+    "good_night",
+    "help",
+    "status",
+}
+
+
+def enabled_commands() -> list[Command]:
+    configured = get_config("enabledCommands", [])
+    enabled = {
+        str(item).strip()
+        for item in configured
+        if str(item).strip()
+    } if isinstance(configured, list) else set()
+    return [
+        command
+        for command in COMMANDS
+        if command.handler in ALWAYS_ENABLED_HANDLERS
+        or command.handler in enabled
+    ]
+
+
 def write_voice_command_index() -> None:
     if SMOKE_TEST_MODE:
         record_smoke_action("write_voice_command_index", VOICE_COMMAND_INDEX_FILE)
@@ -2031,16 +2210,21 @@ def write_voice_command_index() -> None:
         "| # | Command | What it does | Voice phrases |",
         "| ---: | --- | --- | --- |",
     ]
-    for idx, item in enumerate(COMMANDS, start=1):
+    for idx, item in enumerate(enabled_commands(), start=1):
         aliases = ", ".join(f"`{alias}`" for alias in item.aliases)
         lines.append(f"| {idx} | {item.name} | {item.description} | {aliases} |")
     VOICE_COMMAND_INDEX_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
     log(COMMAND_LOG, f"Voice Command Index written: {VOICE_COMMAND_INDEX_FILE}")
 
 
-def find_command(text: str) -> Command | None:
+def find_command(
+    text: str,
+    *,
+    include_disabled: bool = False,
+) -> Command | None:
     best: tuple[int, Command] | None = None
-    for item in COMMANDS:
+    commands = COMMANDS if include_disabled else enabled_commands()
+    for item in commands:
         for alias in item.aliases:
             if command_matches(text, alias):
                 score = len(normalize_command_text(alias.replace(" *", "")))
@@ -2050,7 +2234,22 @@ def find_command(text: str) -> Command | None:
 
 
 NATURAL_INTENT_HINTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("daily_briefing", "daily briefing", ("catch me up", "morning brief", "morning briefing", "brief me on today", "what did i miss", "start my day")),
+    (
+        "daily_briefing",
+        "daily briefing",
+        (
+            "catch me up",
+            "morning brief",
+            "morning briefing",
+            "brief me on today",
+            "what did i miss",
+            "start my day",
+            "what is on my calendar",
+            "what's on my calendar",
+            "show my calendar",
+            "what meetings do i have",
+        ),
+    ),
     ("evening_inbox_brief", "evening brief", ("wrap up my day", "end of day brief", "what did i accomplish", "tomorrow focus", "evening summary")),
     ("recent_email", "recent email", ("check my inbox", "what email needs attention", "catch me up on email", "summarize my inbox")),
     ("meeting_prep", "meeting prep", ("get me ready for my meeting", "prepare me for my meeting", "help me prep", "prep me")),
@@ -2062,8 +2261,13 @@ NATURAL_INTENT_HINTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 )
 
 
-def command_by_handler(handler: str) -> Command | None:
-    for command in COMMANDS:
+def command_by_handler(
+    handler: str,
+    *,
+    include_disabled: bool = False,
+) -> Command | None:
+    commands = COMMANDS if include_disabled else enabled_commands()
+    for command in commands:
         if command.handler == handler:
             return command
     return None
@@ -2074,7 +2278,7 @@ def best_alias_match(text: str) -> tuple[Command | None, str, float]:
     if not normalized:
         return None, "", 0.0
     best: tuple[Command | None, str, float] = (None, "", 0.0)
-    for item in COMMANDS:
+    for item in enabled_commands():
         for alias in item.aliases:
             candidate = normalize_command_text(alias.replace(" *", ""))
             if not candidate:
@@ -2124,11 +2328,12 @@ def run_command_smoke_tests() -> dict[str, object]:
     alias_failures: list[dict[str, str]] = []
     handler_failures: list[dict[str, str]] = []
     handler_results: list[dict[str, object]] = []
+    security_failures: list[dict[str, str]] = []
 
     for command in COMMANDS:
         for alias in command.aliases:
             phrase = smoke_phrase(alias)
-            matched = find_command(phrase)
+            matched = find_command(phrase, include_disabled=True)
             if matched is None or matched.handler != command.handler:
                 alias_failures.append(
                     {
@@ -2162,12 +2367,34 @@ def run_command_smoke_tests() -> dict[str, object]:
                 }
             )
 
+    for phrase in (
+        "read my confidential email aloud",
+        "use browser automation to approve entitlement requests",
+    ):
+        before_actions = len(SMOKE_TEST_ACTIONS)
+        handle_command(phrase, speaker)
+        new_actions = SMOKE_TEST_ACTIONS[before_actions:]
+        if any(action.get("kind") == "enqueue_prompt" for action in new_actions):
+            security_failures.append(
+                {
+                    "phrase": phrase,
+                    "failure": "Unmatched speech reached the Scout prompt queue",
+                }
+            )
+
     return {
-        "status": "passed" if not alias_failures and not handler_failures else "failed",
+        "status": (
+            "passed"
+            if not alias_failures
+            and not handler_failures
+            and not security_failures
+            else "failed"
+        ),
         "commands": len(COMMANDS),
         "aliases": sum(len(command.aliases) for command in COMMANDS),
         "alias_failures": alias_failures,
         "handler_failures": handler_failures,
+        "security_failures": security_failures,
         "handler_results": handler_results,
         "recorded_side_effects": SMOKE_TEST_ACTIONS,
         "spoken_responses": speaker.spoken,
@@ -2179,7 +2406,7 @@ def best_alias_similarity(text: str) -> float:
     if not normalized:
         return 0.0
     best = 0.0
-    for item in COMMANDS:
+    for item in enabled_commands():
         for alias in item.aliases:
             candidate = normalize_command_text(alias.replace(" *", ""))
             if not candidate:
@@ -2223,21 +2450,36 @@ def handle_pending_note(text: str, speaker: Speaker) -> bool:
             clear_pending_note()
             note = clean_transcript(" ".join(parts))
             if not note:
-                speak(speaker, "I do not have anything to note yet. What should I note?")
+                speak(
+                    speaker,
+                    "I do not have anything to note yet. "
+                    "What should I note?",
+                )
                 set_pending_note(stage="collecting")
                 return True
             complete_note(note)
             speak(speaker, "I noted that and sent it to your inbox.")
             return True
         if yes_no == "no":
-            set_pending_note(pending_note_parts(note_state), stage="collecting")
+            set_pending_note(
+                pending_note_parts(note_state),
+                stage="collecting",
+            )
             speak(speaker, "Okay, continue your note.")
             return True
-        speak(speaker, "Please say yes or no. Does that complete your note?")
+        speak(
+            speaker,
+            "Please say yes or no. Does that complete your note?",
+        )
         return True
 
     normalized = normalize_command_text(text)
-    if normalized in {"cancel", "never mind", "stop note", "cancel note"}:
+    if normalized in {
+        "cancel",
+        "never mind",
+        "stop note",
+        "cancel note",
+    }:
         clear_pending_note()
         speak(speaker, "Okay, I canceled that note.")
         return True
@@ -2262,8 +2504,14 @@ def handle_command(text: str, speaker: Speaker, transcription: TranscriptionResu
         command = command_by_handler(str(confirmation.get("handler") or ""))
         clear_pending_confirmation()
         if command:
-            instruction = confirmation_instruction(command, confirmation.get("heard_text"))
-            speak(speaker, f"Confirmed. I will run: {instruction}.")
+            instruction = confirmation_instruction(
+                command,
+                confirmation.get("heard_text"),
+            )
+            speak(
+                speaker,
+                f"Confirmed. I will run: {instruction}.",
+            )
             return execute_command(command, str(confirmation.get("heard_text") or command.aliases[0]), speaker, confirmed=True)
     if confirmation and yes_no == "no":
         clear_pending_confirmation()
@@ -2275,8 +2523,8 @@ def handle_command(text: str, speaker: Speaker, transcription: TranscriptionResu
         command = command_by_handler(str(pending.get("handler") or ""))
         clear_pending_clarification()
         if command:
+            speak(speaker, f"Got it. I will run {command.name}.")
             heard_text = str(pending.get("heard_text") or command.aliases[0])
-            speak(speaker, f"Got it. I will run: {confirmation_instruction(command, heard_text)}.")
             return execute_command(command, heard_text, speaker)
     if pending and yes_no == "no":
         clear_pending_clarification()
@@ -2294,15 +2542,26 @@ def handle_command(text: str, speaker: Speaker, transcription: TranscriptionResu
         speak(speaker, f"I think you meant {matched.name}. Should I run that?")
         return True
 
+    disabled_match = find_command(text, include_disabled=True)
+    if disabled_match:
+        log(
+            COMMAND_LOG,
+            f"Blocked disabled command: {disabled_match.handler}",
+        )
+        speak(speaker, "That command is disabled in Arthur's configuration.")
+        return True
+
     should_clarify, reason = should_ask_for_clarification(text, transcription, matched)
     if should_clarify:
         log(COMMAND_LOG, f"Asked for clarification instead of Scout handoff: {text}; reason={reason}")
         speak(speaker, "I did not catch that clearly. Please repeat the command.")
         return True
 
-    log(COMMAND_LOG, f"Auto-escalated to Copilot: {text}")
-    enqueue_prompt(text)
-    speak(speaker, "I do not know how to do that locally yet, so I sent it to Copilot.")
+    log(COMMAND_LOG, f"Blocked unmatched voice command: {text}")
+    speak(
+        speaker,
+        "That did not match an enabled Arthur command.",
+    )
     return True
 
 
@@ -2311,11 +2570,25 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="Arthur local real-time voice bridge.")
     parser.add_argument("--device", type=int, default=int(os.environ.get("ARTHUR_MIC_DEVICE", str(get_config("microphone.deviceIndex", 1)))))
-    parser.add_argument("--wake-word", default="Arthur")
+    parser.add_argument(
+        "--wake-word",
+        default=str(get_config("assistantName", "Arthur")),
+    )
     parser.add_argument("--samplerate", type=int, default=16000)
-    parser.add_argument("--model", default="tiny.en")
+    parser.add_argument("--model-dir", type=pathlib.Path)
+    parser.add_argument("--asr-threads", type=int)
+    parser.add_argument(
+        "--decoding-method",
+        choices=("greedy_search", "modified_beam_search"),
+    )
     parser.add_argument("--tts", choices=("edge", "windows"), default=os.environ.get("ARTHUR_TTS", str(get_config("voice.tts", "edge"))))
     parser.add_argument("--edge-voice", default=os.environ.get("ARTHUR_EDGE_VOICE", EDGE_VOICE))
+    parser.add_argument("--edge-rate", default=EDGE_RATE)
+    parser.add_argument("--edge-pitch", default=EDGE_PITCH)
+    parser.add_argument("--edge-volume", default=EDGE_VOLUME)
+    parser.add_argument("--windows-voice-id", default=WINDOWS_VOICE_ID)
+    parser.add_argument("--windows-rate", type=int, default=WINDOWS_RATE)
+    parser.add_argument("--windows-volume", type=float, default=WINDOWS_VOLUME)
     parser.add_argument("--threshold", type=float, default=float(os.environ["ARTHUR_THRESHOLD"]) if os.environ.get("ARTHUR_THRESHOLD") else float(get_config("microphone.threshold", 350)))
     parser.add_argument("--calibrate-seconds", type=float, default=1.5)
     parser.add_argument("--max-utterance-seconds", type=float, default=8.0)
@@ -2335,18 +2608,45 @@ def main() -> int:
         return 0 if result["status"] == "passed" else 1
 
     write_voice_command_index()
-    device_info = sd.query_devices(args.device)
+    args.device, device_info = resolve_input_device(args.device)
     CONFIGURED_MICROPHONE_DEVICE = str(device_info["name"])
     os.environ["ARTHUR_MIC_DEVICE"] = str(args.device)
     os.environ["ARTHUR_TIMEZONE"] = args.timezone
 
-    speaker = Speaker(args.tts, args.edge_voice)
-    model = WhisperModel(args.model, device="cpu", compute_type="int8")
+    speaker = Speaker(
+        args.tts,
+        args.edge_voice,
+        args.edge_rate,
+        args.edge_pitch,
+        args.edge_volume,
+        args.windows_voice_id,
+        args.windows_rate,
+        args.windows_volume,
+    )
+    activation_model = build_transcriber(
+        backend="zipformer",
+        model_directory=args.model_dir,
+        num_threads=args.asr_threads,
+        decoding_method=args.decoding_method,
+    )
     threshold = args.threshold or calibrate_noise(args.device, args.samplerate, args.calibrate_seconds)
 
     log(TRANSCRIPT_LOG, f"Voice bridge active on mic index {args.device}: {device_info['name']}")
     log(TRANSCRIPT_LOG, f"Wake word: {args.wake_word}; RMS threshold: {threshold:.1f}")
-    log(TRANSCRIPT_LOG, f"TTS mode: {args.tts}; Edge voice: {args.edge_voice}")
+    log(
+        TRANSCRIPT_LOG,
+        f"Activation speech recognition: {activation_model.description}",
+    )
+    log(
+        TRANSCRIPT_LOG,
+        f"Post-activation speech recognition: {activation_model.description}",
+    )
+    log(
+        TRANSCRIPT_LOG,
+        f"TTS mode: {args.tts}; Edge voice: {args.edge_voice}; "
+        f"rate={args.edge_rate}; pitch={args.edge_pitch}; "
+        f"volume={args.edge_volume}",
+    )
     write_heartbeat("starting", mic_index=args.device, mic_name=str(device_info["name"]))
     response_stop = threading.Event()
     response_thread = threading.Thread(
@@ -2357,7 +2657,6 @@ def main() -> int:
     response_thread.start()
     speak(speaker, startup_greeting(args.welcome_name, args.timezone, args.greeting_scenario))
 
-    count = 0
     try:
         while True:
             write_heartbeat("listening", mic_index=args.device, mic_name=str(device_info["name"]))
@@ -2380,32 +2679,57 @@ def main() -> int:
             if not should_transcribe(audio, threshold):
                 continue
 
-            count += 1
-            path = SCRATCH / f"arthur_bridge_utterance_{count:04d}.wav"
-            wavfile.write(str(path), args.samplerate, audio)
-            transcription = transcribe_audio(model, path)
-            text = transcription.text
-            if not text:
-                continue
+            now = time.time()
+            pending_wake = now < PENDING_WAKE_UNTIL
+            pending_note_capture = pending_note() is not None
+            follow_up = pending_wake or pending_note_capture
+            if follow_up:
+                transcription = transcribe_audio(
+                    activation_model,
+                    audio,
+                    args.samplerate,
+                )
+                text = transcription.text
+                if not text:
+                    continue
+                command = text.strip(" ,.:;-")
+                follow_up_kind = (
+                    "pending note"
+                    if pending_note_capture
+                    else "pending wake word"
+                )
+                log(
+                    COMMAND_LOG,
+                    f"Using {follow_up_kind} with "
+                    f"zipformer: {command}",
+                )
+            else:
+                transcription = transcribe_audio(
+                    activation_model,
+                    audio,
+                    args.samplerate,
+                )
+                text = transcription.text
+                if not text:
+                    continue
+                command = strip_wake_word(text, args.wake_word)
 
             log(
                 TRANSCRIPT_LOG,
                 "Heard: "
                 f"{text} "
-                f"(avg_logprob={transcription.avg_logprob if transcription.avg_logprob is not None else 'n/a'}, "
+                f"(backend={'post-activation' if follow_up else 'activation'}, "
+                f"avg_logprob={transcription.avg_logprob if transcription.avg_logprob is not None else 'n/a'}, "
                 f"no_speech_prob={transcription.no_speech_prob if transcription.no_speech_prob is not None else 'n/a'}, "
                 f"compression_ratio={transcription.compression_ratio if transcription.compression_ratio is not None else 'n/a'})",
             )
             LAST_HEARD = text
-            command = strip_wake_word(text, args.wake_word)
-            now = time.time()
-            if command is None and pending_note():
-                command = text.strip(" ,.:;-")
-                log(COMMAND_LOG, f"Using pending note capture for: {command}")
-            elif command is None and now < PENDING_WAKE_UNTIL:
-                command = text.strip(" ,.:;-")
-                log(COMMAND_LOG, f"Using pending wake word for: {command}")
-            elif command == "":
+            if not follow_up and command is not None:
+                mark_activation(
+                    mic_index=args.device,
+                    mic_name=str(device_info["name"]),
+                )
+            if command == "":
                 PENDING_WAKE_UNTIL = now + 8.0
                 speak(speaker, "Yes?")
                 continue
@@ -2427,5 +2751,3 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except KeyboardInterrupt:
         print("\nI stopped the voice bridge.", flush=True)
-
-

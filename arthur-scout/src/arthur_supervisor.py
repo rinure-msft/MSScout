@@ -20,7 +20,19 @@ WATCHDOG_SCRIPT = SCRATCH / "arthur_queue_watchdog.py"
 DASHBOARD_SCRIPT = SCRATCH / "arthur_status_dashboard.py"
 DASHBOARD_SERVER_SCRIPT = SCRATCH / "arthur_dashboard_server.py"
 AUTOMATION_FILE = get_path("runtime.automationFile", str(pathlib.Path.home() / ".copilot" / "m-automations" / "automations.json"))
-BROWSER_PROFILE_DIR = get_path("runtime.browserProfilePath", str(pathlib.Path(os.environ.get("LOCALAPPDATA", pathlib.Path.home() / "AppData" / "Local")) / "Arthur" / "EdgeProfile"))
+BROWSER_PROFILE_DIR = get_path(
+    "runtime.browserProfilePath",
+    str(
+        pathlib.Path(
+            os.environ.get(
+                "LOCALAPPDATA",
+                pathlib.Path.home() / "AppData" / "Local",
+            )
+        )
+        / "Arthur"
+        / "EdgeProfile"
+    ),
+)
 SUPERVISOR_LOG = SCRATCH / "arthur_supervisor.log"
 HEARTBEAT_FILE = SCRATCH / "arthur_voice_bridge_heartbeat.json"
 PROMPT_WORKER_HEARTBEAT_FILE = SCRATCH / "arthur_prompt_worker_heartbeat.json"
@@ -64,52 +76,59 @@ def run_powershell(command: str, timeout: int = 20) -> subprocess.CompletedProce
             errors="replace",
         )
     except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stdout = (
+            exc.stdout.decode("utf-8", errors="replace")
+            if isinstance(exc.stdout, bytes)
+            else (exc.stdout or "")
+        )
         return subprocess.CompletedProcess(
             exc.cmd,
             124,
             stdout=stdout,
-            stderr=f"PowerShell command timed out after {timeout}s: {command}",
+            stderr=(
+                f"PowerShell command timed out after {timeout}s: {command}"
+            ),
         )
 
 
-def bridge_process_ids() -> list[int] | None:
+def powershell_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def python_process_ids(script_name: str) -> list[int] | None:
+    root = powershell_literal(str(SCRATCH))
+    script = powershell_literal(script_name)
     command = (
+        f"$root = {root}; $script = {script}; "
         "Get-CimInstance Win32_Process | "
-        "Where-Object { $_.CommandLine -like '*arthur_voice_bridge.py*' -and $_.Name -match 'python' } | "
+        "Where-Object { "
+        "$cmd = $_.CommandLine; "
+        "$_.Name -match '^python(w)?\\.exe$' -and $cmd -and "
+        "$cmd.IndexOf($root, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -and "
+        "$cmd.IndexOf($script, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 "
+        "} | "
         "ForEach-Object { $_.ProcessId }"
     )
     result = run_powershell(command)
     if result.returncode != 0:
-        log(f"Bridge process lookup failed: {(result.stderr or result.stdout).strip()[:300]}")
+        log(
+            f"{script_name} process lookup failed: "
+            f"{(result.stderr or result.stdout).strip()[:300]}"
+        )
         return None
     return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
+
+
+def bridge_process_ids() -> list[int] | None:
+    return python_process_ids("arthur_voice_bridge.py")
 
 
 def prompt_worker_process_ids() -> list[int] | None:
-    command = (
-        "Get-CimInstance Win32_Process | "
-        "Where-Object { $_.CommandLine -like '*arthur_prompt_worker.py*' -and $_.Name -match 'python' } | "
-        "ForEach-Object { $_.ProcessId }"
-    )
-    result = run_powershell(command)
-    if result.returncode != 0:
-        log(f"Prompt worker process lookup failed: {(result.stderr or result.stdout).strip()[:300]}")
-        return None
-    return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
+    return python_process_ids("arthur_prompt_worker.py")
 
 
 def dashboard_server_process_ids() -> list[int] | None:
-    command = (
-        "Get-CimInstance Win32_Process | "
-        "Where-Object { $_.CommandLine -like '*arthur_dashboard_server.py*' -and $_.Name -match 'python' } | "
-        "ForEach-Object { $_.ProcessId }"
-    )
-    result = run_powershell(command)
-    if result.returncode != 0:
-        log(f"Dashboard server process lookup failed: {(result.stderr or result.stdout).strip()[:300]}")
-        return None
-    return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
+    return python_process_ids("arthur_dashboard_server.py")
 
 
 def stop_processes(process_ids: list[int]) -> None:
@@ -146,8 +165,8 @@ def read_heartbeat() -> dict | None:
         return None
     try:
         return json.loads(HEARTBEAT_FILE.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError:
-        log("Heartbeat file is unreadable.")
+    except (OSError, json.JSONDecodeError) as exc:
+        log(f"Heartbeat file is temporarily unavailable: {type(exc).__name__}: {exc}")
         return None
 
 
@@ -170,8 +189,8 @@ def heartbeat_age_seconds_for(path: pathlib.Path) -> float | None:
         return None
     try:
         heartbeat = json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError:
-        log(f"Heartbeat file is unreadable: {path.name}")
+    except (OSError, json.JSONDecodeError) as exc:
+        log(f"Heartbeat file is temporarily unavailable: {path.name}: {type(exc).__name__}: {exc}")
         return None
     timestamp = heartbeat.get("timestamp")
     if not timestamp:
@@ -221,6 +240,11 @@ def ensure_prompt_worker(stale_seconds: int) -> None:
     processes = prompt_worker_process_ids()
     if processes is None:
         return
+    if not bool(get_config("scout.queueEnabled", True)):
+        if processes:
+            stop_processes(processes)
+            log("Stopped Arthur prompt worker because Scout queueing is disabled.")
+        return
     age = heartbeat_age_seconds_for(PROMPT_WORKER_HEARTBEAT_FILE)
     if len(processes) > 1:
         stop_processes(processes[1:])
@@ -236,17 +260,30 @@ def ensure_prompt_worker(stale_seconds: int) -> None:
 
 def start_dashboard_server() -> None:
     if not DASHBOARD_SERVER_SCRIPT.exists():
-        raise FileNotFoundError(f"Arthur dashboard server script not found: {DASHBOARD_SERVER_SCRIPT}")
+        raise FileNotFoundError(
+            f"Arthur dashboard server script not found: "
+            f"{DASHBOARD_SERVER_SCRIPT}"
+        )
     stdout = DASHBOARD_SERVER_STDOUT_LOG.open("a", encoding="utf-8")
     stderr = DASHBOARD_SERVER_STDERR_LOG.open("a", encoding="utf-8")
     subprocess.Popen(
-        [sys.executable, str(DASHBOARD_SERVER_SCRIPT), "--host", DASHBOARD_HOST, "--port", str(DASHBOARD_PORT)],
+        [
+            sys.executable,
+            str(DASHBOARD_SERVER_SCRIPT),
+            "--host",
+            DASHBOARD_HOST,
+            "--port",
+            str(DASHBOARD_PORT),
+        ],
         cwd=str(SCRATCH),
         stdout=stdout,
         stderr=stderr,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    log(f"Started Arthur dashboard server at http://{DASHBOARD_HOST}:{DASHBOARD_PORT}/dashboard.")
+    log(
+        f"Started Arthur dashboard server at "
+        f"http://{DASHBOARD_HOST}:{DASHBOARD_PORT}/dashboard."
+    )
 
 
 def ensure_dashboard_server() -> None:
@@ -255,7 +292,10 @@ def ensure_dashboard_server() -> None:
         return
     if len(processes) > 1:
         stop_processes(processes[1:])
-        log(f"Stopped duplicate Arthur dashboard server processes: {processes[1:]}")
+        log(
+            "Stopped duplicate Arthur dashboard server processes: "
+            f"{processes[1:]}"
+        )
     if not processes:
         start_dashboard_server()
 
@@ -364,7 +404,10 @@ def close_idle_browser(idle_minutes: int) -> None:
         return
     if dt.datetime.now() - opened < dt.timedelta(minutes=idle_minutes):
         return
-    profile = str(state.get("profile_dir") or BROWSER_PROFILE_DIR).replace("'", "''")
+    profile = str(state.get("profile_dir") or BROWSER_PROFILE_DIR).replace(
+        "'",
+        "''",
+    )
     run_powershell(
         f"$profile = '{profile}'; "
         "Get-CimInstance Win32_Process -Filter \"Name = 'msedge.exe'\" | "
@@ -449,7 +492,13 @@ def main() -> int:
     while True:
         try:
             ensure_automation_ownership()
-            ensure_bridge(args.mic_device, args.tts, args.stale_heartbeat_seconds, args.threshold, args.greeting_scenario)
+            ensure_bridge(
+                args.mic_device,
+                args.tts,
+                args.stale_heartbeat_seconds,
+                args.threshold,
+                args.greeting_scenario,
+            )
             ensure_prompt_worker(args.stale_worker_heartbeat_seconds)
             ensure_dashboard_server()
             if time.monotonic() - last_watchdog > 2 * 60:
@@ -460,14 +509,29 @@ def main() -> int:
             if time.monotonic() - last_cleanup > 20 * 60:
                 run_cleanup()
                 last_cleanup = time.monotonic()
-            if time.monotonic() - last_chat_cleanup > float(get_config("runtime.chatCleanupIntervalMinutes", 45)) * 60:
+            if (
+                time.monotonic() - last_chat_cleanup
+                > float(
+                    get_config(
+                        "runtime.chatCleanupIntervalMinutes",
+                        45,
+                    )
+                )
+                * 60
+            ):
                 run_chat_cleanup()
                 last_chat_cleanup = time.monotonic()
-            if time.monotonic() - last_dashboard > args.dashboard_refresh_seconds:
+            if (
+                time.monotonic() - last_dashboard
+                > args.dashboard_refresh_seconds
+            ):
                 run_dashboard_refresh()
                 last_dashboard = time.monotonic()
         except Exception:
-            log(f"Supervisor cycle failed; continuing watchdog loop:\n{traceback.format_exc()[-2000:]}")
+            log(
+                "Supervisor cycle failed; continuing watchdog loop:\n"
+                f"{traceback.format_exc()[-2000:]}"
+            )
             if args.once:
                 return 1
         if args.once:

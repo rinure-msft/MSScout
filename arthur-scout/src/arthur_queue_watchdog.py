@@ -317,6 +317,8 @@ def claim_next(runner_id: str | None) -> int:
                 "timestamp": selected.get("timestamp"),
                 "prompt": selected.get("prompt"),
                 "spoken_prompt": selected.get("spoken_prompt"),
+                "source": selected.get("source"),
+                "authorization": selected.get("authorization"),
             },
             ensure_ascii=True,
         )

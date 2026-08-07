@@ -1,46 +1,47 @@
-﻿To install Arthur into another MS Scout instance
+﻿# Install Arthur into Microsoft Scout
 
-Open MS Scout to a new chat prompt.
+Download `Arthur-Setup-X.Y.Z-x64.exe` from a tagged GitHub Release and run it.
 
-On your MS Scout prompt, run the following commands:
+Arthur installs per user, provisions its private Python runtime and downloads the
+verified Zipformer model on first launch.
 
-	Download arthur-scout-vX.Y.Z.zip from a tagged GitHub Release and extract it.
+PowerShell installation remains available for development and recovery:
 
-	Alternatively, for development:
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -InstallDependencies -InstallSpeechModel
+```
 
-	git clone https://github.com/rinure-msft/MSScout.git
-	
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\MSScout\arthur-scout\install.ps1
+This installs the same runtime under `%LOCALAPPDATA%\Arthur`.
 
-Then edit the generated local config:
+On a first install, local paths, the Windows timezone and a safe read-only command set are filled automatically. Scout integration remains optional and is never scheduled or synchronized during startup.
 
-	%USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad\arthur.config.json
+Edit:
 
-Arthur will not start until this local config exists and all required placeholders are replaced.
+```text
+%LOCALAPPDATA%\Arthur\runtime\arthur.config.json
+```
 
-Update placeholders:
+Review the profile and microphone values. Scout and work integrations are
+optional and should only be enabled when they are needed.
 
-	- user name
-	- first name
-	- email address
-	- microphone index
-	- timezone
-	- voice
-	- Azure DevOps org/project/url and default assignee
-	- WorkIQ path
-	- Scout automations JSON path
-	- enabled commands
+List current microphone devices when the configured index is stale:
 
-Then start Arthur:
+```powershell
+python -c "import sounddevice as sd; print(sd.query_devices())"
+```
 
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\OneDrive - Microsoft\Documents\Microsoft Scout\Scratchpad\Start-Arthur.ps1"
-	
-Optional: install Arthur as a Windows sign-in task:
+Start Arthur:
 
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -CreateScheduledTask
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Arthur\runtime\Start-Arthur.ps1"
+```
 
-After install, validate the package with:
+Use `Start with Windows` in the Arthur desktop application when login startup is required. The legacy scheduled task is removed during installation.
 
-	.\scripts\Test-Arthur.ps1
-	
-Important: the repo contains only source/templates. Runtime files like queues, logs, heartbeat files, browser profile, audio temp files, and personal history are created locally and are not committed.
+Validate the source package:
+
+```powershell
+.\scripts\Test-Arthur.ps1
+```
+
+The repository contains source and templates only. Model binaries, queues, logs, heartbeat files, browser profiles and personal history remain under LocalAppData. Raw voice-loop audio is not retained.

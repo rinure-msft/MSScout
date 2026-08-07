@@ -16,30 +16,46 @@ Run:
 .\scripts\Test-Arthur.ps1
 ```
 
-## Install
+## Install or upgrade
 
-Run:
+Run the Windows installer from the GitHub Release. It is the supported user
+installation and upgrade path.
+
+For development or recovery only:
 
 ```powershell
-.\install.ps1
+.\install.ps1 -InstallDependencies -InstallSpeechModel
+```
+
+To re-verify the default Zipformer model:
+
+```powershell
+.\scripts\Install-ArthurZipformerModel.ps1
 ```
 
 ## Update
 
-Run from a downloaded or cloned package:
+The Windows installer performs a staged update and rollback automatically.
+
+The installed recovery updater can apply an extracted source package when its
+published manifest hash is supplied:
 
 ```powershell
-.\scripts\Update-Arthur.ps1
+& "$env:LOCALAPPDATA\Arthur\runtime\Update-Arthur.ps1" `
+  -PackageRoot <extracted-package> `
+  -ExpectedManifestSha256 <published-sha256>
 ```
 
-The update copies package files into the live Scratchpad, preserves `arthur.config.json`, runs config validation, preflight checks, no-side-effect voice command smoke tests, syncs automations, regenerates the dashboard, restarts Arthur, and writes `arthur_update_report.json`.
+The update stages the runtime and private Python, installs pinned dependencies,
+verifies Zipformer, preserves local state, validates the staged version and
+switches directories only after those steps pass.
 
-Optionally register Arthur at Windows sign-in:
-
-```powershell
-.\install.ps1 -CreateScheduledTask
-```
+Use `Start with Windows` in the desktop application. Arthur does not create a scheduled task.
 
 ## Cleanup
 
 Arthur cleanup jobs preserve active queue entries and archive completed history. Logs and runtime data stay local unless deliberately exported.
+
+## Scout automations
+
+Scheduled Arthur automations are disabled by default to avoid repeated no-work Scout runs. Email and Scout handoff processors can be run manually when pending work exists.
