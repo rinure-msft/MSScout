@@ -9,7 +9,7 @@ from typing import Any
 from arthur_config import get_path
 
 
-PACKAGE_VERSION = "0.3.0"
+PACKAGE_VERSION = "0.4.0"
 SCRATCH = get_path("runtime.scratchpadPath", str(pathlib.Path(__file__).resolve().parent))
 VERSION_FILE = SCRATCH / "arthur.version.json"
 CHECKSUM_PATTERNS = (

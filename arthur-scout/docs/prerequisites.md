@@ -1,42 +1,32 @@
-﻿# Arthur Installation Prerequisites
+# Prerequisites
 
-| Requirement | Purpose |
-|---|---|
-| **Windows 10/11** | Arthur uses PowerShell, Windows audio devices, and optional Scheduled Tasks. |
-| **Microsoft Scout installed** | Arthur runs as a local Scout companion and uses Scout automations. |
-| **Python 3.12+** | Runs ArthurΓÇÖs voice bridge, supervisor, watchdog, and cleanup scripts. |
-| **PowerShell** | Runs `install.ps1`, `Start-Arthur.ps1`, and maintenance scripts. |
-| **Git** | Clones the `rinure-msft/MSScout` repository. |
-| **GitHub access** | Required to access the private repo. |
-| **Microphone access** | Arthur listens through a configured input device index. |
-| **Microsoft 365 sign-in in Scout** | Needed for email, calendar, Teams, OneDrive, and WorkIQ-backed commands. |
-| **WorkIQ available/authorized** | Used for Microsoft 365 work-context commands. |
-| **Playwright/browser access** | Needed for portal automation commands like entitlement approvals. |
-| **Network/VPN access to Microsoft internal portals** | Required for CoreIdentity, ADO, ServiceNow, MyAccess, Pulse, WAccess, Personnel, OneVet, etc. |
-| **Azure DevOps access** | Required for Arthur Action Tracker commands. |
-| **Optional Windows Scheduled Task permission** | Needed if installing Arthur to start at sign-in. |
+## To use Arthur
 
-## Python Modules
+- Windows 10 or 11
+- A microphone
+- Internet access during installation
+- About 1 GB of free local storage
 
-Arthur currently imports these Python modules:
+The installer provides Arthur's private Python runtime and downloads the
+verified Zipformer model. Users do not need to install Python, Node.js, Git or
+PowerShell tools themselves.
 
-```text
-edge_tts
-numpy
-pyttsx3
-pygame
-sounddevice
-faster_whisper
-scipy
-```
-The installer should create local runtime files from templates, but the user must configure 
-```arthur.config.json``` with their mic index, email, timezone, ADO project, and enabled command settings.
+Scout is optional. Local voice controls, wake detection, the tray and the
+dashboard work without it.
 
-Required configuration includes:
-```text
-microphone device index
-email address
-timezone
-Azure DevOps organization/project
-enabled command settings
-```
+## For Scout commands
+
+- Microsoft Scout installed and signed in
+- Access to the Microsoft 365 or work systems used by the enabled command
+- **Scout bridge** enabled in Arthur's System settings
+
+Scheduled Scout automations remain disabled by default. The bridge controls
+whether enabled voice commands may place work on Arthur's local Scout queue.
+
+## To contribute
+
+- Git
+- Node.js 22
+- Windows for native tray and installer tests
+
+Run the commands in `CONTRIBUTING.md` from the repository root.

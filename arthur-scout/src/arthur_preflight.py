@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import importlib.util
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -20,8 +21,10 @@ REQUIRED_PACKAGES = (
     "pyttsx3",
     "pygame",
     "sounddevice",
-    "faster_whisper",
+    "sentencepiece",
+    "sherpa_onnx",
     "scipy",
+    "tzdata",
 )
 
 
@@ -46,15 +49,17 @@ def check_python() -> dict[str, Any]:
 
 def check_packages() -> list[dict[str, Any]]:
     results = []
-    for package in REQUIRED_PACKAGES:
+    packages = list(REQUIRED_PACKAGES)
+    for package in packages:
         found = importlib.util.find_spec(package) is not None
         results.append(check(f"Python package: {package}", found, "installed" if found else "missing"))
     return results
 
 
 def check_config(strict: bool) -> list[dict[str, Any]]:
-    path = pathlib.Path(str(get_config("configPath", DEFAULT_CONFIG_PATH)))
-    errors = validate_config(CONFIG, DEFAULT_CONFIG_PATH)
+    configured_path = os.environ.get("ARTHUR_CONFIG")
+    path = pathlib.Path(configured_path) if configured_path else DEFAULT_CONFIG_PATH
+    errors = validate_config(CONFIG, path)
     if not strict and errors:
         return [check("Arthur config", True, "Config-dependent checks skipped until arthur.config.json is filled.", "warning")]
     return [check("Arthur config", not errors, "; ".join(errors) if errors else f"valid: {path}")]
@@ -65,19 +70,90 @@ def check_mic(strict: bool) -> dict[str, Any]:
         import sounddevice as sd
 
         index = int(get_config("microphone.deviceIndex"))
-        device = sd.query_devices(index)
-        channels = int(device.get("max_input_channels", 0))
-        ok = channels > 0
-        return check("Microphone device", ok, f"index={index}; name={device.get('name')}; input_channels={channels}")
+        try:
+            device = sd.query_devices(index)
+            channels = int(device.get("max_input_channels", 0))
+            if channels > 0:
+                return check(
+                    "Microphone device",
+                    True,
+                    f"index={index}; name={device.get('name')}; input_channels={channels}",
+                )
+        except Exception:
+            pass
+
+        devices = list(sd.query_devices())
+        try:
+            default_input = int(sd.default.device[0])
+        except (TypeError, ValueError):
+            default_input = -1
+        candidate_indexes = [default_input] + list(range(len(devices)))
+        checked: set[int] = set()
+        for candidate_index in candidate_indexes:
+            if (
+                candidate_index < 0
+                or candidate_index in checked
+                or candidate_index >= len(devices)
+            ):
+                continue
+            checked.add(candidate_index)
+            candidate = devices[candidate_index]
+            channels = int(candidate.get("max_input_channels", 0))
+            if channels > 0:
+                return check(
+                    "Microphone device",
+                    True,
+                    "configured index unavailable; "
+                    f"using index={candidate_index}; name={candidate.get('name')}; "
+                    f"input_channels={channels}",
+                    "warning",
+                )
+        raise RuntimeError("No input microphone was found.")
     except Exception as exc:
         return check("Microphone device", not strict, f"{type(exc).__name__}: {exc}", "warning" if not strict else "error")
+
+
+def check_speech_model(strict: bool) -> dict[str, Any]:
+    try:
+        from arthur_speech import inspect_backend
+
+        activation_backend = str(
+            get_config("speechRecognition.backend", "zipformer")
+        )
+        post_activation_backend = str(
+            get_config(
+                "speechRecognition.postActivationBackend",
+                activation_backend,
+            )
+        )
+        details = [inspect_backend(activation_backend)]
+        if post_activation_backend != activation_backend:
+            details.append(inspect_backend(post_activation_backend))
+        return check(
+            "Speech recognition model",
+            True,
+            "; ".join(details),
+        )
+    except Exception as exc:
+        return check(
+            "Speech recognition model",
+            not strict,
+            f"{type(exc).__name__}: {exc}",
+            "warning" if not strict else "error",
+        )
 
 
 async def save_edge_sample(path: pathlib.Path) -> None:
     import edge_tts
 
-    voice = str(get_config("voice.edgeVoice", "en-US-BrianNeural"))
-    await edge_tts.Communicate("Arthur preflight TTS check.", voice).save(str(path))
+    voice = str(get_config("voice.edgeVoice", "en-GB-RyanNeural"))
+    await edge_tts.Communicate(
+        "Arthur preflight TTS check.",
+        voice,
+        rate=str(get_config("voice.edgeRate", "+10%")),
+        pitch=str(get_config("voice.edgePitch", "+0Hz")),
+        volume=str(get_config("voice.edgeVolume", "+0%")),
+    ).save(str(path))
 
 
 def check_edge_tts(strict: bool) -> dict[str, Any]:
@@ -99,15 +175,20 @@ def check_edge_tts(strict: bool) -> dict[str, Any]:
 def check_workiq(strict: bool) -> dict[str, Any]:
     path = pathlib.Path(str(get_config("runtime.workiqPath", "")))
     ok = path.exists()
-    return check("WorkIQ path", ok or not strict, str(path) if ok else f"missing: {path}", "warning" if not strict and not ok else "error")
+    return check(
+        "WorkIQ path",
+        True,
+        str(path) if ok else "not configured; Scout integration remains unavailable",
+        "warning" if not ok else "error",
+    )
 
 
 def check_tool(tool: str) -> dict[str, Any]:
     path = shutil.which(tool)
     if not path:
-        return check(f"{tool} availability", False, "not found on PATH")
+        return check(f"{tool} availability", True, "not found on PATH; optional integration unavailable", "warning")
     ok, output = run_command([tool, "--version"])
-    return check(f"{tool} availability", ok, output or path)
+    return check(f"{tool} availability", True, output or path, "warning" if not ok else "error")
 
 
 def check_write_access() -> dict[str, Any]:
@@ -117,9 +198,9 @@ def check_write_access() -> dict[str, Any]:
             handle.write("ok")
             temp_name = handle.name
         pathlib.Path(temp_name).unlink(missing_ok=True)
-        return check("Scratchpad write access", True, str(SCRATCH))
+        return check("Local runtime write access", True, str(SCRATCH))
     except Exception as exc:
-        return check("Scratchpad write access", False, f"{type(exc).__name__}: {exc}")
+        return check("Local runtime write access", False, f"{type(exc).__name__}: {exc}")
 
 
 def run_preflight(strict: bool) -> dict[str, Any]:
@@ -127,6 +208,7 @@ def run_preflight(strict: bool) -> dict[str, Any]:
     checks.append(check_python())
     checks.extend(check_packages())
     checks.extend(check_config(strict))
+    checks.append(check_speech_model(strict))
     checks.append(check_mic(strict))
     checks.append(check_edge_tts(strict))
     checks.append(check_workiq(strict))

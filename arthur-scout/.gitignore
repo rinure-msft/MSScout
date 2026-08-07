@@ -1,12 +1,21 @@
 ﻿# Arthur runtime and private artifacts
 *.log
 *.wav
+*.flac
 *.mp3
+*.m4a
+*.ogg
+*.webm
 *.jsonl
 *heartbeat*.json
 *state*.json
 arthur_archive/
 arthur_edge_profile/
+models/
+speech-benchmark/
+benchmark-audio/
+benchmark-corpus/
+corpus/
 __pycache__/
 *.pyc
 

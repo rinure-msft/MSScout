@@ -44,7 +44,13 @@ def iso_timestamp() -> str:
 def log(message: str) -> None:
     line = f"[{now().strftime('%Y-%m-%d %H:%M:%S')}] {message}"
     console_encoding = sys.stdout.encoding or "utf-8"
-    print(line.encode(console_encoding, errors="backslashreplace").decode(console_encoding), flush=True)
+    print(
+        line.encode(
+            console_encoding,
+            errors="backslashreplace",
+        ).decode(console_encoding),
+        flush=True,
+    )
     with WORKER_LOG.open("a", encoding="utf-8") as handle:
         handle.write(line + "\n")
 
@@ -318,6 +324,12 @@ def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None)
 
 
 def process_once(runner_id: str) -> bool:
+    if not bool(get_config("scout.queueEnabled", True)):
+        write_heartbeat(
+            "disabled",
+            message="Scout queueing is disabled in Arthur's configuration.",
+        )
+        return False
     run_repair()
     claim = claim_next(runner_id)
     if claim.get("status") == "no_runnable":
@@ -329,14 +341,29 @@ def process_once(runner_id: str) -> bool:
     prompt_id = str(claim["id"])
     prompt = str(claim.get("prompt") or "")
     spoken_prompt = str(claim.get("spoken_prompt") or "")
+    source = str(claim.get("source") or "")
+    authorization = str(claim.get("authorization") or "")
     log(f"Claimed prompt {prompt_id}: {spoken_prompt or prompt[:80]}")
     update_entry(prompt_id, status="running", last_heartbeat_at=iso_timestamp())
     write_heartbeat("running", prompt_id=prompt_id, spoken_prompt=spoken_prompt)
 
-    try:
-        result = classify_and_execute(prompt_id, prompt, spoken_prompt)
-    except Exception as exc:  # Surface into queue state instead of crashing the worker loop.
-        result = HandlerResult("failed", f"Local prompt worker failed: {type(exc).__name__}: {exc}", str(exc))
+    if source == "voice" and authorization != "enabled_command":
+        result = HandlerResult(
+            "blocked",
+            "Voice prompt blocked because it was not produced by an enabled command.",
+            "Untrusted voice prompt authorization.",
+        )
+    elif not source and spoken_prompt:
+        result = HandlerResult(
+            "blocked",
+            "Legacy voice prompt blocked after the Arthur security upgrade.",
+            "Legacy queue entry has no trusted source metadata.",
+        )
+    else:
+        try:
+            result = classify_and_execute(prompt_id, prompt, spoken_prompt)
+        except Exception as exc:  # Surface into queue state instead of crashing the worker loop.
+            result = HandlerResult("failed", f"Local prompt worker failed: {type(exc).__name__}: {exc}", str(exc))
 
     completion_time = iso_timestamp()
     if result.status == "completed":

@@ -1,58 +1,76 @@
-﻿param(
+﻿[CmdletBinding()]
+param(
     [ValidateSet('startup', 'updates')]
     [string] $GreetingScenario = 'startup'
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$Scratch = $PSScriptRoot
-$ConfigFile = Join-Path $Scratch 'arthur.config.json'
-if (-not (Test-Path -LiteralPath $ConfigFile)) {
-    throw "Arthur config file is required and was not found: $ConfigFile. Copy arthur.config.template.json to arthur.config.json and fill the placeholders."
+$scratch = $PSScriptRoot
+$configFile = Join-Path $scratch 'arthur.config.json'
+if (-not (Test-Path -LiteralPath $configFile)) {
+    throw "Arthur config file was not found: $configFile"
 }
-$ArthurConfig = Get-Content -LiteralPath $ConfigFile -Raw | ConvertFrom-Json
-if ($ArthurConfig -and $ArthurConfig.runtime -and $ArthurConfig.runtime.scratchpadPath) {
-    $Scratch = [string] $ArthurConfig.runtime.scratchpadPath
+$arthurConfig = Get-Content -LiteralPath $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($arthurConfig -and $arthurConfig.runtime -and $arthurConfig.runtime.scratchpadPath) {
+    $scratch = [System.IO.Path]::GetFullPath([string] $arthurConfig.runtime.scratchpadPath)
 }
-$BridgeScript = Join-Path $Scratch 'arthur_voice_bridge.py'
-$SupervisorScript = Join-Path $Scratch 'arthur_supervisor.py'
-$AutomationFile = if ($ArthurConfig -and $ArthurConfig.runtime -and $ArthurConfig.runtime.automationFile) { [string] $ArthurConfig.runtime.automationFile } else { Join-Path $env:USERPROFILE '.copilot\m-automations\automations.json' }
-$StdoutLog = Join-Path $Scratch 'arthur_voice_bridge_stdout.log'
-$StderrLog = Join-Path $Scratch 'arthur_voice_bridge_stderr.log'
-$SupervisorStdoutLog = Join-Path $Scratch 'arthur_supervisor_stdout.log'
-$SupervisorStderrLog = Join-Path $Scratch 'arthur_supervisor_stderr.log'
-$PromptQueueFile = Join-Path $Scratch 'arthur_prompt_queue.jsonl'
-$PromptResponsesFile = Join-Path $Scratch 'arthur_prompt_responses.jsonl'
-$AutomationSyncScript = Join-Path $Scratch 'arthur_automation_sync.py'
-$AutomationTemplateFile = Join-Path $Scratch 'automations.template.json'
-$PreflightScript = Join-Path $Scratch 'arthur_preflight.py'
-$VersionScript = Join-Path $Scratch 'arthur_version.py'
-$ArthurMicDevice = if ($ArthurConfig -and $ArthurConfig.microphone -and $null -ne $ArthurConfig.microphone.deviceIndex) { [int] $ArthurConfig.microphone.deviceIndex } else { 1 }
-$ArthurThreshold = if ($ArthurConfig -and $ArthurConfig.microphone -and $null -ne $ArthurConfig.microphone.threshold) { [int] $ArthurConfig.microphone.threshold } else { 350 }
-$ArthurTts = if ($ArthurConfig -and $ArthurConfig.voice -and $ArthurConfig.voice.tts) { [string] $ArthurConfig.voice.tts } else { 'edge' }
-$ArthurTimezone = if ($ArthurConfig -and $ArthurConfig.timezone) { [string] $ArthurConfig.timezone } else { 'Mountain Standard Time' }
 
-$EnabledArthurAutomationNames = @()
-
-$DisabledArthurAutomationNames = @(
-    'Arthur Copilot prompt responder',
-    'Arthur recording cleanup',
-    'Arthur prompt queue executor',
-    'Arthur voice transcript polling',
-    'Arthur Copilot response startup'
-)
+$bridgeScript = Join-Path $scratch 'arthur_voice_bridge.py'
+$supervisorScript = Join-Path $scratch 'arthur_supervisor.py'
+$supervisorStdoutLog = Join-Path $scratch 'arthur_supervisor_stdout.log'
+$supervisorStderrLog = Join-Path $scratch 'arthur_supervisor_stderr.log'
+$promptQueueFile = Join-Path $scratch 'arthur_prompt_queue.jsonl'
+$promptResponsesFile = Join-Path $scratch 'arthur_prompt_responses.jsonl'
+$preflightScript = Join-Path $scratch 'arthur_preflight.py'
+$versionScript = Join-Path $scratch 'arthur_version.py'
+$arthurMicDevice = if ($null -ne $arthurConfig.microphone.deviceIndex) { [int] $arthurConfig.microphone.deviceIndex } else { 1 }
+$arthurThreshold = if ($null -ne $arthurConfig.microphone.threshold) { [int] $arthurConfig.microphone.threshold } else { 350 }
+$arthurTts = if ($arthurConfig.voice.tts) { [string] $arthurConfig.voice.tts } else { 'edge' }
+$arthurTimezone = if ($arthurConfig.timezone) { [string] $arthurConfig.timezone } else { 'Europe/London' }
 
 function Write-ArthurStatus {
     param([string] $Message)
     Write-Host "[Arthur startup] $Message"
 }
 
+function Resolve-ArthurPython {
+    if ($env:ARTHUR_PYTHON -and (Test-Path -LiteralPath $env:ARTHUR_PYTHON)) {
+        return [System.IO.Path]::GetFullPath($env:ARTHUR_PYTHON)
+    }
+
+    $manifestPath = Join-Path $scratch 'arthur.runtime.json'
+    if (Test-Path -LiteralPath $manifestPath) {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($manifest.pythonExecutable -and (Test-Path -LiteralPath ([string] $manifest.pythonExecutable))) {
+            return [System.IO.Path]::GetFullPath([string] $manifest.pythonExecutable)
+        }
+    }
+
+    $localPython = Join-Path (Split-Path -Parent $scratch) 'python\python.exe'
+    if (Test-Path -LiteralPath $localPython) {
+        return $localPython
+    }
+
+    $command = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($command -and $command.Source) {
+        return $command.Source
+    }
+    throw 'Arthur Python is unavailable. Repair the desktop installation or run install.ps1 -InstallDependencies.'
+}
+
+$pythonExecutable = Resolve-ArthurPython
+$env:ARTHUR_CONFIG = $configFile
+$env:ARTHUR_PYTHON = $pythonExecutable
+$env:PYTHONNOUSERSITE = '1'
+
 function Test-ArthurConfig {
-    $configHelper = Join-Path $Scratch 'arthur_config.py'
+    $configHelper = Join-Path $scratch 'arthur_config.py'
     if (-not (Test-Path -LiteralPath $configHelper)) {
         throw "Arthur config helper not found: $configHelper"
     }
-    $result = & python $configHelper --config $ConfigFile --validate 2>&1
+    $result = & $pythonExecutable -s $configHelper --config $configFile --validate 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw ($result -join [Environment]::NewLine)
     }
@@ -60,40 +78,26 @@ function Test-ArthurConfig {
 }
 
 function Test-ArthurPreflight {
-    if (-not (Test-Path -LiteralPath $PreflightScript)) {
-        throw "Arthur preflight script not found: $PreflightScript"
+    if (-not (Test-Path -LiteralPath $preflightScript)) {
+        throw "Arthur preflight script not found: $preflightScript"
     }
-    $result = & python $PreflightScript --strict --write 2>&1
+    $result = & $pythonExecutable -s $preflightScript --strict --write 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw ($result -join [Environment]::NewLine)
     }
     Write-ArthurStatus 'Arthur preflight checks passed.'
 }
 
-function Sync-ArthurAutomations {
-    if (-not (Test-Path -LiteralPath $AutomationSyncScript)) {
-        throw "Arthur automation sync script not found: $AutomationSyncScript"
-    }
-    if (-not (Test-Path -LiteralPath $AutomationTemplateFile)) {
-        throw "Arthur automation template not found: $AutomationTemplateFile"
-    }
-    $result = & python $AutomationSyncScript --template $AutomationTemplateFile 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw ($result -join [Environment]::NewLine)
-    }
-    Write-ArthurStatus 'Arthur automations synchronized from template.'
-}
-
 function Update-ArthurVersionManifest {
-    if (-not (Test-Path -LiteralPath $VersionScript)) {
-        Write-ArthurStatus "Arthur version script not found: $VersionScript"
+    if (-not (Test-Path -LiteralPath $versionScript)) {
+        Write-ArthurStatus "Arthur version script not found: $versionScript"
         return
     }
-    $args = @($VersionScript, '--write')
+    $arguments = @($versionScript, '--write')
     if ($env:ARTHUR_COMMIT_SHA) {
-        $args += @('--commit-sha', $env:ARTHUR_COMMIT_SHA)
+        $arguments += @('--commit-sha', $env:ARTHUR_COMMIT_SHA)
     }
-    $result = & python @args 2>&1
+    $result = & $pythonExecutable -s @arguments 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw ($result -join [Environment]::NewLine)
     }
@@ -101,57 +105,58 @@ function Update-ArthurVersionManifest {
 }
 
 function Start-ArthurSupervisor {
-    if (-not (Test-Path -LiteralPath $SupervisorScript)) {
-        throw "Arthur supervisor script not found: $SupervisorScript"
+    if (-not (Test-Path -LiteralPath $bridgeScript)) {
+        throw "Arthur voice bridge not found: $bridgeScript"
+    }
+    if (-not (Test-Path -LiteralPath $supervisorScript)) {
+        throw "Arthur supervisor not found: $supervisorScript"
     }
 
-    $existing = Get-CimInstance Win32_Process |
-        Where-Object { $_.Name -match 'python' -and $_.CommandLine -like '*arthur_supervisor.py*' }
-
+    $existing = Get-CimInstance Win32_Process | Where-Object {
+        $commandLine = $_.CommandLine
+        $_.Name -match '^python(w)?\.exe$' -and
+            $commandLine -and
+            $commandLine.IndexOf($scratch, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+            $commandLine -like '*arthur_supervisor.py*'
+    }
     if ($existing) {
         $ids = ($existing | ForEach-Object { $_.ProcessId }) -join ', '
         Write-ArthurStatus "Arthur supervisor already running. PID(s): $ids"
         return
     }
 
-    $argumentList = '"' + $SupervisorScript + '" --mic-device ' + $ArthurMicDevice + ' --threshold ' + $ArthurThreshold + ' --greeting-scenario ' + $GreetingScenario
-    $env:ARTHUR_CONFIG = $ConfigFile
-    $env:ARTHUR_TTS = $ArthurTts
-    $env:ARTHUR_TIMEZONE = $ArthurTimezone
+    $argumentList = '-s "' + $supervisorScript + '" --mic-device ' + $arthurMicDevice + ' --threshold ' + $arthurThreshold + ' --greeting-scenario ' + $GreetingScenario
+    $env:ARTHUR_TTS = $arthurTts
+    $env:ARTHUR_TIMEZONE = $arthurTimezone
     $env:ARTHUR_GREETING_SCENARIO = $GreetingScenario
-    $process = Start-Process -FilePath 'python' `
+    $process = Start-Process -FilePath $pythonExecutable `
         -ArgumentList $argumentList `
-        -WorkingDirectory $Scratch `
+        -WorkingDirectory $scratch `
         -WindowStyle Hidden `
-        -RedirectStandardOutput $SupervisorStdoutLog `
-        -RedirectStandardError $SupervisorStderrLog `
+        -RedirectStandardOutput $supervisorStdoutLog `
+        -RedirectStandardError $supervisorStderrLog `
         -PassThru
 
     Start-Sleep -Seconds 10
     $running = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
     if (-not $running) {
         $errorTail = ''
-        if (Test-Path -LiteralPath $SupervisorStderrLog) {
-            $errorTail = (Get-Content -LiteralPath $SupervisorStderrLog -Tail 20) -join [Environment]::NewLine
+        if (Test-Path -LiteralPath $supervisorStderrLog) {
+            $errorTail = (Get-Content -LiteralPath $supervisorStderrLog -Tail 20) -join [Environment]::NewLine
         }
-        throw "Arthur supervisor exited during startup. Check $SupervisorStderrLog. $errorTail"
+        throw "Arthur supervisor exited during startup. Check $supervisorStderrLog. $errorTail"
     }
-
     Write-ArthurStatus "Arthur supervisor started. PID: $($process.Id)"
 }
 
-New-Item -ItemType Directory -Path $Scratch -Force | Out-Null
+New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 Test-ArthurConfig
 Test-ArthurPreflight
 Update-ArthurVersionManifest
-if (-not (Test-Path -LiteralPath $PromptQueueFile)) {
-    New-Item -ItemType File -Path $PromptQueueFile | Out-Null
+foreach ($path in @($promptQueueFile, $promptResponsesFile)) {
+    if (-not (Test-Path -LiteralPath $path)) {
+        New-Item -ItemType File -Path $path | Out-Null
+    }
 }
-if (-not (Test-Path -LiteralPath $PromptResponsesFile)) {
-    New-Item -ItemType File -Path $PromptResponsesFile | Out-Null
-}
-
-Sync-ArthurAutomations
 Start-ArthurSupervisor
 Write-ArthurStatus 'Startup complete.'
-
