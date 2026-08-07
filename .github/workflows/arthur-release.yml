@@ -17,7 +17,7 @@ permissions:
 jobs:
   package-release:
     name: Package Arthur release
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     env:
       PYGAME_HIDE_SUPPORT_PROMPT: "1"
     steps:
@@ -35,25 +35,43 @@ jobs:
           }
           "ARTHUR_RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      - name: Verify source versions
+        shell: pwsh
+        run: |
+          $expected = $env:ARTHUR_RELEASE_VERSION.TrimStart('v')
+          $desktop = (Get-Content -LiteralPath 'arthur-desktop/package.json' -Raw | ConvertFrom-Json).version
+          $runtimeText = Get-Content -LiteralPath 'arthur-scout/src/arthur_version.py' -Raw
+          $runtimeMatch = [regex]::Match($runtimeText, 'PACKAGE_VERSION\s*=\s*"(?<version>[^"]+)"')
+          if (-not $runtimeMatch.Success) {
+            throw 'Arthur runtime version could not be read.'
+          }
+          $runtime = $runtimeMatch.Groups['version'].Value
+          if ($desktop -ne $expected -or $runtime -ne $expected) {
+            throw "Release tag $expected does not match desktop=$desktop and runtime=$runtime."
+          }
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y portaudio19-dev espeak ffmpeg
+          python-version: "3.13"
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r arthur-scout/requirements-ci.txt
+          python -m pip install -r arthur-scout/requirements.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: arthur-desktop/package-lock.json
 
       - name: Validate package source
         shell: pwsh
         run: |
-          python -m py_compile arthur-scout/src/*.py
+          $pythonFiles = @(Get-ChildItem -LiteralPath 'arthur-scout/src' -Filter '*.py' -File | Select-Object -ExpandProperty FullName)
+          python -m py_compile @pythonFiles
           pwsh -NoProfile -File arthur-scout/scripts/Test-Arthur.ps1 -PackageRoot arthur-scout
 
       - name: Build clean package
@@ -69,11 +87,46 @@ jobs:
           pwsh -NoProfile -File arthur-scout/scripts/Export-ArthurPackage.ps1 -SourceRoot $liveSource -OutputRoot $exportRoot
           pwsh -NoProfile -File (Join-Path $exportRoot 'arthur-scout/scripts/Test-Arthur.ps1') -PackageRoot (Join-Path $exportRoot 'arthur-scout')
           Compress-Archive -Path (Join-Path $exportRoot 'arthur-scout') -DestinationPath "arthur-scout-$env:ARTHUR_RELEASE_VERSION.zip" -Force
+          $manifest = Join-Path $exportRoot 'arthur-scout/arthur.package-manifest.json'
+          (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash |
+            Set-Content -LiteralPath "arthur-scout-$env:ARTHUR_RELEASE_VERSION.manifest.sha256" -Encoding Ascii
+          (Get-FileHash -LiteralPath "arthur-scout-$env:ARTHUR_RELEASE_VERSION.zip" -Algorithm SHA256).Hash |
+            Set-Content -LiteralPath "arthur-scout-$env:ARTHUR_RELEASE_VERSION.zip.sha256" -Encoding Ascii
+
+      - name: Validate and package Windows desktop
+        shell: pwsh
+        working-directory: arthur-desktop
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run runtime:build
+          npm run build
+          npm run verify:package
+          npm run test:tray-native
+          pwsh -NoProfile -File scripts/package.ps1 `
+            -Target nsis `
+            -OutputRoot (Join-Path $env:RUNNER_TEMP 'arthur-release')
+          $installer = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'arthur-release') -Filter 'Arthur-Setup-*.exe' -File | Select-Object -First 1
+          if (-not $installer) {
+            throw 'Arthur release installer was not produced.'
+          }
+          Copy-Item -LiteralPath $installer.FullName -Destination (Join-Path $env:GITHUB_WORKSPACE $installer.Name)
+          (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash |
+            Set-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "$($installer.Name).sha256") -Encoding Ascii
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.ARTHUR_RELEASE_VERSION }}
-          name: Arthur ${{ env.ARTHUR_RELEASE_VERSION }}
+          name: Arthur ${{ env.ARTHUR_RELEASE_VERSION }} preview
           generate_release_notes: true
-          files: arthur-scout-${{ env.ARTHUR_RELEASE_VERSION }}.zip
+          prerelease: true
+          files: |
+            arthur-scout-${{ env.ARTHUR_RELEASE_VERSION }}.zip
+            arthur-scout-${{ env.ARTHUR_RELEASE_VERSION }}.zip.sha256
+            arthur-scout-${{ env.ARTHUR_RELEASE_VERSION }}.manifest.sha256
+            Arthur-Setup-*.exe
+            Arthur-Setup-*.exe.sha256

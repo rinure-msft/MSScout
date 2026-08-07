@@ -4,11 +4,18 @@ on:
   push:
     paths:
       - "arthur-scout/**"
+      - "arthur-desktop/**"
+      - "LICENSE"
       - ".github/workflows/arthur-ci.yml"
   pull_request:
     paths:
       - "arthur-scout/**"
+      - "arthur-desktop/**"
+      - "LICENSE"
       - ".github/workflows/arthur-ci.yml"
+
+permissions:
+  contents: read
 
 jobs:
   arthur-package:
@@ -37,6 +44,9 @@ jobs:
 
       - name: Compile Arthur Python modules
         run: python -m py_compile arthur-scout/src/*.py
+
+      - name: Run Arthur Python tests
+        run: python -m unittest discover -s arthur-scout/tests -v
 
       - name: Run no-side-effect command smoke tests
         shell: pwsh
@@ -85,3 +95,50 @@ jobs:
             ${{ runner.temp }}/arthur_voice_command_smoke_test.json
             ${{ runner.temp }}/arthur_status_dashboard.html
           if-no-files-found: ignore
+
+  arthur-desktop:
+    name: Validate Windows desktop
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: arthur-desktop
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: arthur-desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Validate desktop source
+        run: |
+          npm audit --omit=dev --audit-level=high
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Test v0.3 runtime upgrade
+        shell: pwsh
+        run: pwsh -NoProfile -File ..\arthur-scout\tests\Test-ArthurUpgrade.ps1
+
+      - name: Build and verify desktop
+        shell: pwsh
+        run: |
+          npm run runtime:build
+          npm run build
+          npm run verify:package
+          npm run test:tray-native
+          pwsh -NoProfile -File scripts/package.ps1 -Target nsis -OutputRoot (Join-Path $env:RUNNER_TEMP 'arthur-desktop')
+
+      - name: Upload unsigned CI installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: arthur-desktop-unsigned-ci
+          path: ${{ runner.temp }}/arthur-desktop/Arthur-Setup-*.exe
+          if-no-files-found: error
