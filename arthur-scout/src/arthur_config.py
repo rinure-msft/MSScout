@@ -44,6 +44,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "runtime": {
         "scratchpadPath": str(MODULE_DIR),
+        "browserProfilePath": str(pathlib.Path(os.environ.get("LOCALAPPDATA", pathlib.Path.home() / "AppData" / "Local")) / "Arthur" / "EdgeProfile"),
         "workiqPath": str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd"),
         "automationFile": str(pathlib.Path.home() / ".copilot" / "m-automations" / "automations.json"),
         "promptResponderAutomationId": "2w51kbs3mqra79xo",
@@ -76,6 +77,7 @@ REQUIRED_CONFIG_FIELDS = (
     "azureDevOps.defaultAssignee",
     "azureDevOps.defaultAssigneeEmail",
     "runtime.scratchpadPath",
+    "runtime.browserProfilePath",
     "runtime.workiqPath",
     "runtime.automationFile",
 )

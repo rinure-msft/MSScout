@@ -6,6 +6,7 @@ import pathlib
 import subprocess
 import sys
 import time
+import traceback
 
 from arthur_config import get_config, get_path
 
@@ -18,6 +19,7 @@ CHAT_CLEANUP_SCRIPT = SCRATCH / "arthur_cleanup_chats.py"
 WATCHDOG_SCRIPT = SCRATCH / "arthur_queue_watchdog.py"
 DASHBOARD_SCRIPT = SCRATCH / "arthur_status_dashboard.py"
 AUTOMATION_FILE = get_path("runtime.automationFile", str(pathlib.Path.home() / ".copilot" / "m-automations" / "automations.json"))
+BROWSER_PROFILE_DIR = get_path("runtime.browserProfilePath", str(pathlib.Path(os.environ.get("LOCALAPPDATA", pathlib.Path.home() / "AppData" / "Local")) / "Arthur" / "EdgeProfile"))
 SUPERVISOR_LOG = SCRATCH / "arthur_supervisor.log"
 HEARTBEAT_FILE = SCRATCH / "arthur_voice_bridge_heartbeat.json"
 PROMPT_WORKER_HEARTBEAT_FILE = SCRATCH / "arthur_prompt_worker_heartbeat.json"
@@ -47,17 +49,26 @@ def log(message: str) -> None:
 
 
 def run_powershell(command: str, timeout: int = 20) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["powershell.exe", "-NoProfile", "-Command", command],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        return subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", command],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        return subprocess.CompletedProcess(
+            exc.cmd,
+            124,
+            stdout=stdout,
+            stderr=f"PowerShell command timed out after {timeout}s: {command}",
+        )
 
 
-def bridge_process_ids() -> list[int]:
+def bridge_process_ids() -> list[int] | None:
     command = (
         "Get-CimInstance Win32_Process | "
         "Where-Object { $_.CommandLine -like '*arthur_voice_bridge.py*' -and $_.Name -match 'python' } | "
@@ -66,11 +77,11 @@ def bridge_process_ids() -> list[int]:
     result = run_powershell(command)
     if result.returncode != 0:
         log(f"Bridge process lookup failed: {(result.stderr or result.stdout).strip()[:300]}")
-        return []
+        return None
     return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
 
 
-def prompt_worker_process_ids() -> list[int]:
+def prompt_worker_process_ids() -> list[int] | None:
     command = (
         "Get-CimInstance Win32_Process | "
         "Where-Object { $_.CommandLine -like '*arthur_prompt_worker.py*' -and $_.Name -match 'python' } | "
@@ -79,7 +90,7 @@ def prompt_worker_process_ids() -> list[int]:
     result = run_powershell(command)
     if result.returncode != 0:
         log(f"Prompt worker process lookup failed: {(result.stderr or result.stdout).strip()[:300]}")
-        return []
+        return None
     return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
 
 
@@ -158,6 +169,8 @@ def heartbeat_age_seconds_for(path: pathlib.Path) -> float | None:
 
 def ensure_bridge(mic_device: int, tts: str, stale_seconds: int, threshold: int | None, greeting_scenario: str) -> None:
     processes = bridge_process_ids()
+    if processes is None:
+        return
     age = heartbeat_age_seconds()
     if len(processes) > 1:
         stop_processes(processes[1:])
@@ -188,6 +201,8 @@ def start_prompt_worker() -> None:
 
 def ensure_prompt_worker(stale_seconds: int) -> None:
     processes = prompt_worker_process_ids()
+    if processes is None:
+        return
     age = heartbeat_age_seconds_for(PROMPT_WORKER_HEARTBEAT_FILE)
     if len(processes) > 1:
         stop_processes(processes[1:])
@@ -305,7 +320,7 @@ def close_idle_browser(idle_minutes: int) -> None:
         return
     if dt.datetime.now() - opened < dt.timedelta(minutes=idle_minutes):
         return
-    profile = str(state.get("profile_dir") or SCRATCH / "arthur_edge_profile").replace("'", "''")
+    profile = str(state.get("profile_dir") or BROWSER_PROFILE_DIR).replace("'", "''")
     run_powershell(
         f"$profile = '{profile}'; "
         "Get-CimInstance Win32_Process -Filter \"Name = 'msedge.exe'\" | "
@@ -388,23 +403,28 @@ def main() -> int:
     last_dashboard = 0.0
     log("Arthur supervisor started.")
     while True:
-        ensure_automation_ownership()
-        ensure_bridge(args.mic_device, args.tts, args.stale_heartbeat_seconds, args.threshold, args.greeting_scenario)
-        ensure_prompt_worker(args.stale_worker_heartbeat_seconds)
-        if time.monotonic() - last_watchdog > 2 * 60:
-            run_queue_watchdog()
-            last_watchdog = time.monotonic()
-        report_stale_prompts(args.stale_prompt_seconds)
-        close_idle_browser(args.browser_idle_minutes)
-        if time.monotonic() - last_cleanup > 20 * 60:
-            run_cleanup()
-            last_cleanup = time.monotonic()
-        if time.monotonic() - last_chat_cleanup > float(get_config("runtime.chatCleanupIntervalMinutes", 45)) * 60:
-            run_chat_cleanup()
-            last_chat_cleanup = time.monotonic()
-        if time.monotonic() - last_dashboard > args.dashboard_refresh_seconds:
-            run_dashboard_refresh()
-            last_dashboard = time.monotonic()
+        try:
+            ensure_automation_ownership()
+            ensure_bridge(args.mic_device, args.tts, args.stale_heartbeat_seconds, args.threshold, args.greeting_scenario)
+            ensure_prompt_worker(args.stale_worker_heartbeat_seconds)
+            if time.monotonic() - last_watchdog > 2 * 60:
+                run_queue_watchdog()
+                last_watchdog = time.monotonic()
+            report_stale_prompts(args.stale_prompt_seconds)
+            close_idle_browser(args.browser_idle_minutes)
+            if time.monotonic() - last_cleanup > 20 * 60:
+                run_cleanup()
+                last_cleanup = time.monotonic()
+            if time.monotonic() - last_chat_cleanup > float(get_config("runtime.chatCleanupIntervalMinutes", 45)) * 60:
+                run_chat_cleanup()
+                last_chat_cleanup = time.monotonic()
+            if time.monotonic() - last_dashboard > args.dashboard_refresh_seconds:
+                run_dashboard_refresh()
+                last_dashboard = time.monotonic()
+        except Exception:
+            log(f"Supervisor cycle failed; continuing watchdog loop:\n{traceback.format_exc()[-2000:]}")
+            if args.once:
+                return 1
         if args.once:
             return 0
         time.sleep(args.interval_seconds)

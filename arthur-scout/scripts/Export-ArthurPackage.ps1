@@ -176,6 +176,7 @@ function Write-Templates {
   },
   "runtime": {
     "scratchpadPath": "<MS_SCOUT_SCRATCHPAD_PATH>",
+    "browserProfilePath": "<LOCAL_APPDATA_ARTHUR_EDGE_PROFILE_PATH>",
     "workiqPath": "<WORKIQ_CMD_PATH>",
     "automationFile": "<SCOUT_AUTOMATIONS_JSON_PATH>",
     "promptResponderAutomationId": "2w51kbs3mqra79xo",

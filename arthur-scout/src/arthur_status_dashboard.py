@@ -6,8 +6,9 @@ import pathlib
 import re
 import subprocess
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from arthur_config import get_path
+from arthur_config import get_config, get_path
 
 
 SCRATCH = get_path("runtime.scratchpadPath", str(pathlib.Path(__file__).resolve().parent))
@@ -38,10 +39,28 @@ EMAIL_HANDOFF_WARNING_SECONDS = 5 * 60
 EMAIL_HANDOFF_CRITICAL_SECONDS = 10 * 60
 ERROR_PATTERN = re.compile(r"\b(error|failed|exception|traceback|permissionerror|unicodeencodeerror|timeout)\b", re.I)
 LOG_TIMESTAMP_PATTERN = re.compile(r"^\[(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
+EMBEDDED_ISO_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\b")
+EMBEDDED_LOG_PATTERN = re.compile(r"\[(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
+WINDOWS_TIMEZONE_ALIASES = {
+    "Mountain Standard Time": "America/Denver",
+}
 
 
 def now() -> dt.datetime:
-    return dt.datetime.now().astimezone()
+    return dt.datetime.now(dashboard_timezone())
+
+
+def system_local_timezone() -> dt.tzinfo:
+    return dt.datetime.now().astimezone().tzinfo or dashboard_timezone()
+
+
+def dashboard_timezone() -> ZoneInfo:
+    configured = str(get_config("timezone", "Mountain Standard Time"))
+    zone_name = WINDOWS_TIMEZONE_ALIASES.get(configured, configured)
+    try:
+        return ZoneInfo(zone_name)
+    except ZoneInfoNotFoundError:
+        return dt.datetime.now().astimezone().tzinfo or ZoneInfo("UTC")
 
 
 def parse_time(value: Any) -> dt.datetime | None:
@@ -59,8 +78,8 @@ def parse_time(value: Any) -> dt.datetime | None:
         except ValueError:
             return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=now().tzinfo)
-    return parsed.astimezone()
+        parsed = parsed.replace(tzinfo=system_local_timezone())
+    return parsed.astimezone(dashboard_timezone())
 
 
 def age_label(value: Any) -> str:
@@ -77,6 +96,36 @@ def age_label(value: Any) -> str:
     if hours < 48:
         return f"{hours}h ago"
     return f"{hours // 24}d ago"
+
+
+def human_time_label(value: Any) -> str:
+    parsed = parse_time(value)
+    if parsed is None:
+        return "unknown"
+    hour = parsed.strftime("%I").lstrip("0") or "0"
+    minute = parsed.strftime("%M")
+    am_pm = parsed.strftime("%p")
+    tz = parsed.tzname() or parsed.strftime("%z") or "local"
+    absolute = f"{parsed.strftime('%b')} {parsed.day}, {parsed.year} {hour}:{minute} {am_pm} {tz}"
+    return f"{absolute} ({age_label(value)})"
+
+
+def human_time_absolute(value: Any) -> str:
+    parsed = parse_time(value)
+    if parsed is None:
+        return str(value)
+    hour = parsed.strftime("%I").lstrip("0") or "0"
+    minute = parsed.strftime("%M")
+    am_pm = parsed.strftime("%p")
+    tz = parsed.tzname() or parsed.strftime("%z") or "local"
+    return f"{parsed.strftime('%b')} {parsed.day}, {parsed.year} {hour}:{minute} {am_pm} {tz}"
+
+
+def humanize_embedded_timestamps(text: Any) -> str:
+    value = str(text or "")
+    value = EMBEDDED_ISO_PATTERN.sub(lambda match: human_time_absolute(match.group(0)), value)
+    value = EMBEDDED_LOG_PATTERN.sub(lambda match: f"[{human_time_absolute(match.group('timestamp'))}]", value)
+    return value
 
 
 def age_seconds(value: Any) -> int | None:
@@ -115,7 +164,7 @@ def read_jsonl(path: pathlib.Path) -> tuple[list[dict[str, Any]], int]:
 
 
 def truncate(text: Any, limit: int = 180) -> str:
-    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+    clean = re.sub(r"\s+", " ", humanize_embedded_timestamps(text)).strip()
     return clean if len(clean) <= limit else clean[: limit - 1].rstrip() + "…"
 
 
@@ -157,7 +206,7 @@ def recent_items(items: list[dict[str, Any]], queue_name: str, limit: int = 8) -
                 "id": truncate(item.get("id") or item.get("prompt_id") or "", 48),
                 "status": str(item.get("status") or ""),
                 "type": truncate(item.get("type") or item.get("handler") or "", 32),
-                "age": age_label(created),
+                "age": human_time_label(created),
                 "sla_status": sla_status,
                 "sla": sla_label,
                 "subject": truncate(item.get("subject") or item.get("prompt") or item.get("source_prompt") or item.get("response") or "", 120),
@@ -218,7 +267,7 @@ def collect_health() -> list[dict[str, str]]:
                 "severity": severity,
                 "status": status,
                 "pid": str((heartbeat or {}).get("pid") or "unknown"),
-                "updated": age_label((heartbeat or {}).get("timestamp")),
+                "updated": human_time_label((heartbeat or {}).get("timestamp")),
                 "message": truncate((heartbeat or {}).get("message") or (heartbeat or {}).get("error") or (heartbeat or {}).get("reason") or (heartbeat or {}).get("mic_name") or "", 120),
             }
         )
@@ -304,7 +353,7 @@ def collect_errors() -> list[dict[str, str]]:
             if since is not None and timestamp is not None and timestamp < since:
                 continue
             if ERROR_PATTERN.search(line):
-                errors.append({"source": path.name, "line": truncate(line, 220)})
+                errors.append({"source": path.name, "line": truncate(humanize_embedded_timestamps(line), 220)})
     return errors[-12:]
 
 
@@ -325,8 +374,8 @@ def collect_version() -> dict[str, Any]:
     return {
         "packageVersion": str(version.get("packageVersion") or "unknown"),
         "commitSha": str(version.get("commitSha") or "unknown"),
-        "installTime": str(version.get("installTime") or "unknown"),
-        "generatedAt": str(version.get("generatedAt") or "unknown"),
+        "installTime": human_time_label(version.get("installTime")),
+        "generatedAt": human_time_label(version.get("generatedAt")),
         "scratchpadPath": str(version.get("scratchpadPath") or SCRATCH),
         "checksums": checksums,
     }
@@ -396,7 +445,7 @@ def build_html() -> str:
     version = collect_version()
     preflight = collect_preflight()
     severity, summary = status_summary(queues, health, errors)
-    generated_at = now().strftime("%Y-%m-%d %I:%M:%S %p %Z")
+    generated_at = human_time_label(now().isoformat())
     checksum_rows = "\n".join(
         f"<tr><td>{esc(name)}</td><td><code>{esc(str(value)[:16])}…</code></td></tr>"
         for name, value in sorted(version["checksums"].items())
@@ -407,7 +456,7 @@ def build_html() -> str:
         active_table = ""
         if queue["active_items"]:
             active_table = (
-                '<h3>Active items</h3><table><thead><tr><th>ID</th><th>Status</th><th>Type</th><th>Age</th><th>SLA</th><th>Summary</th></tr></thead>'
+                '<h3>Active items</h3><table><thead><tr><th>ID</th><th>Status</th><th>Type</th><th>Time</th><th>SLA</th><th>Summary</th></tr></thead>'
                 f"<tbody>{render_rows(queue['active_items'])}</tbody></table>"
             )
         sla_alerts = ""
@@ -433,7 +482,7 @@ def build_html() -> str:
               {sla_alerts}
               {active_table}
               <h3>Recent items</h3>
-              <table><thead><tr><th>ID</th><th>Status</th><th>Type</th><th>Age</th><th>SLA</th><th>Summary</th></tr></thead><tbody>{render_rows(queue['recent'])}</tbody></table>
+              <table><thead><tr><th>ID</th><th>Status</th><th>Type</th><th>Time</th><th>SLA</th><th>Summary</th></tr></thead><tbody>{render_rows(queue['recent'])}</tbody></table>
             </section>
             """
         )
