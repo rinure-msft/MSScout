@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <script>
+    (() => {
+      const theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Arthur</title>
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./popover.css">
+</head>
+<body>
+  <div id="popover-shell" class="popover-shell">
+    <div class="popover-header">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div class="popover-heading">
+        <span id="service-dot" class="status-dot" data-tone="neutral" aria-hidden="true"></span>
+        <strong id="service-label">Preparing</strong>
+      </div>
+    </div>
+    <p id="last-action" class="popover-detail">Preparing local runtime...</p>
+    <div class="popover-actions">
+      <button id="listen-toggle" class="icon-button primary-button" type="button" data-icon="play" data-tooltip="Start Arthur" aria-label="Start Arthur" data-busy-sensitive></button>
+      <button id="open-settings" class="button default-button popover-settings" type="button" data-icon="system"><span>Open settings</span></button>
+    </div>
+  </div>
+  <script type="module" src="./popover.ts"></script>
+</body>
+</html>

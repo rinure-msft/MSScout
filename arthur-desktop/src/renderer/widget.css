@@ -1,0 +1,169 @@
+/*
+ * Layout for the optional floating widget. `styles.css` supplies the
+ * Clawpilot/Arthur theme tokens (`--cp-*`) reused here; this file only adds
+ * the widget's own transparent-window shell, the four state presentations
+ * and the momentary activation bloom.
+ */
+
+html,
+body {
+  background: transparent;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  -webkit-app-region: drag;
+}
+
+.widget-shell {
+  position: relative;
+  width: 136px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  background: transparent;
+  isolation: isolate;
+}
+
+.widget-glow {
+  position: absolute;
+  z-index: 0;
+  inset: 8px;
+  border-radius: 18px;
+  background: radial-gradient(
+    ellipse,
+    color-mix(in srgb, var(--cp-link) 78%, transparent) 0%,
+    color-mix(in srgb, var(--cp-accent) 58%, transparent) 54%,
+    transparent 80%
+  );
+  box-shadow:
+    0 0 14px 4px color-mix(in srgb, var(--cp-link) 42%, transparent),
+    0 0 22px 7px color-mix(in srgb, var(--cp-accent) 24%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.widget-shell[data-glow="true"] .widget-glow {
+  animation: arthur-widget-bloom 900ms ease-out 1;
+}
+
+@keyframes arthur-widget-bloom {
+  0% {
+    opacity: 0;
+    transform: scale(0.78);
+  }
+
+  30% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+}
+
+.widget-surface {
+  position: relative;
+  z-index: 1;
+  width: 104px;
+  height: 40px;
+  display: grid;
+  grid-template-columns: 8px 10px 32px 2px 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  border: 1px solid var(--cp-border);
+  border-radius: 10px;
+  background: var(--cp-panel-strong);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+  padding: 3px 7px 3px 11px;
+  -webkit-app-region: drag;
+}
+
+.widget-grabber {
+  grid-column: 1;
+  width: 8px;
+  height: 20px;
+  border-radius: 4px;
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--cp-text-muted) 72%, transparent) 1px,
+    transparent 1.4px
+  );
+  background-position: center;
+  background-size: 4px 5px;
+  cursor: grab;
+  opacity: 0.72;
+  -webkit-app-region: drag;
+}
+
+.widget-state,
+.widget-open {
+  position: relative;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--cp-text-muted);
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.widget-state {
+  grid-column: 3;
+}
+
+.widget-open {
+  grid-column: 5;
+}
+
+.widget-state .ui-icon,
+.widget-open .ui-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.widget-state:hover,
+.widget-open:hover {
+  background-color: var(--cp-surface-soft);
+  color: var(--cp-link);
+}
+
+.widget-state:focus-visible,
+.widget-open:focus-visible {
+  outline: 2px solid var(--cp-link);
+  outline-offset: -2px;
+}
+
+.widget-state:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.widget-shell[data-tone="listening"] .widget-state {
+  color: var(--cp-link);
+}
+
+.widget-shell[data-tone="active"] .widget-state {
+  color: var(--cp-accent);
+}
+
+.widget-shell[data-tone="error"] .widget-state {
+  color: var(--cp-warning);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-shell[data-glow="true"] .widget-glow {
+    animation: none;
+    opacity: 0;
+  }
+}

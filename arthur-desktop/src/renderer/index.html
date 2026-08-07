@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("scoutTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Arthur</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="titlebar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <strong>Arthur</strong>
+      <span id="header-status" class="header-status" role="status" aria-label="Arthur is preparing"></span>
+    </div>
+    <div class="window-actions">
+      <button id="minimize-window" class="window-button" type="button" data-icon="minus" data-tooltip="Minimise" data-tooltip-placement="left" aria-label="Minimise"></button>
+      <button id="close-window" class="window-button close-button" type="button" data-icon="close" data-tooltip="Close" data-tooltip-placement="left" aria-label="Close"></button>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <section class="runtime-bar" aria-label="Arthur runtime">
+      <div class="runtime-summary">
+        <div class="runtime-state">
+          <span id="service-dot" class="status-dot" data-tone="neutral" aria-hidden="true"></span>
+          <strong id="service-label">Preparing</strong>
+        </div>
+        <p id="recent-transcript" class="runtime-detail">Preparing local runtime...</p>
+        <span id="last-command" class="visually-hidden"></span>
+      </div>
+      <div class="runtime-actions">
+        <button id="runtime-toggle" class="icon-button primary-button" type="button" data-icon="play" data-tooltip="Start Arthur" aria-label="Start Arthur" data-busy-sensitive></button>
+        <button id="restart-button" class="icon-button default-button" type="button" data-icon="restart" data-tooltip="Restart Arthur" aria-label="Restart Arthur" data-busy-sensitive disabled></button>
+      </div>
+    </section>
+
+    <nav class="section-tabs" role="tablist" aria-label="Arthur settings">
+      <button id="voice-tab" class="tab-button" type="button" role="tab" aria-controls="voice-panel" aria-selected="true" data-panel="voice" data-icon="voice" data-tooltip="Voice" aria-label="Voice"></button>
+      <button id="profile-tab" class="tab-button" type="button" role="tab" aria-controls="profile-panel" aria-selected="false" data-panel="profile" data-icon="profile" data-tooltip="Profile" aria-label="Profile" tabindex="-1"></button>
+      <button id="microphone-tab" class="tab-button" type="button" role="tab" aria-controls="microphone-panel" aria-selected="false" data-panel="microphone" data-icon="microphone" data-tooltip="Microphone" aria-label="Microphone" tabindex="-1"></button>
+      <button id="system-tab" class="tab-button" type="button" role="tab" aria-controls="system-panel" aria-selected="false" data-panel="system" data-icon="system" data-tooltip="System" aria-label="System" tabindex="-1"></button>
+    </nav>
+
+    <div class="panel-stack">
+      <section id="voice-panel" class="settings-panel" role="tabpanel" aria-labelledby="voice-tab" tabindex="0">
+        <h1>Voice</h1>
+        <div class="field-grid two-column">
+          <label>
+            Provider
+            <select id="voice-provider">
+              <option value="edge">Edge neural</option>
+              <option value="windows">Windows voices</option>
+            </select>
+          </label>
+          <label>
+            Language
+            <select id="voice-locale"></select>
+          </label>
+        </div>
+        <label class="field-block">
+          Voice
+          <select id="voice-select"></select>
+        </label>
+
+        <div id="edge-controls" class="slider-grid">
+          <label class="slider-control">
+            <span>Rate <output id="edge-rate-output">+10%</output></span>
+            <input id="edge-rate" type="range" min="-50" max="50" value="10">
+          </label>
+          <label class="slider-control">
+            <span>Pitch <output id="edge-pitch-output">+0Hz</output></span>
+            <input id="edge-pitch" type="range" min="-20" max="20" value="0">
+          </label>
+          <label class="slider-control">
+            <span>Volume <output id="edge-volume-output">+0%</output></span>
+            <input id="edge-volume" type="range" min="-50" max="50" value="0">
+          </label>
+        </div>
+
+        <div id="windows-controls" class="slider-grid hidden">
+          <label class="slider-control">
+            <span>Rate <output id="windows-rate-output">180</output></span>
+            <input id="windows-rate" type="range" min="80" max="300" value="180">
+          </label>
+          <label class="slider-control">
+            <span>Volume <output id="windows-volume-output">100%</output></span>
+            <input id="windows-volume" type="range" min="0" max="100" value="100">
+          </label>
+        </div>
+
+        <div class="preview-row">
+          <input id="preview-text" type="text" value="Hello, I am Arthur." aria-label="Voice preview text">
+          <button id="preview-button" class="icon-button default-button" type="button" data-icon="play" data-tooltip="Preview voice" aria-label="Preview voice" data-busy-sensitive></button>
+        </div>
+      </section>
+
+      <section id="profile-panel" class="settings-panel" role="tabpanel" aria-labelledby="profile-tab" tabindex="0" hidden>
+        <h1>Profile</h1>
+        <div class="field-grid two-column">
+          <label>Wake name <input id="assistant-name" type="text" maxlength="40"></label>
+          <label>First name <input id="user-first-name" type="text"></label>
+        </div>
+        <label class="field-block">Display name <input id="user-display-name" type="text"></label>
+        <label class="field-block">Timezone <input id="timezone" type="text" placeholder="Europe/London"></label>
+        <label class="field-block">Startup greeting <textarea id="startup-greeting" rows="2"></textarea></label>
+        <label class="field-block">Update greeting <textarea id="updates-greeting" rows="2"></textarea></label>
+      </section>
+
+      <section id="microphone-panel" class="settings-panel" role="tabpanel" aria-labelledby="microphone-tab" tabindex="0" hidden>
+        <h1>Microphone</h1>
+        <label>
+          Input device
+          <select id="microphone-select"></select>
+        </label>
+        <details class="advanced-settings">
+          <summary>Detection tuning</summary>
+          <div class="advanced-content">
+            <label>Threshold <input id="speech-threshold" type="number" min="1" max="32767"></label>
+            <label>Minimum RMS <input id="minimum-rms" type="number" min="1" max="32767"></label>
+            <label>Minimum peak <input id="minimum-peak" type="number" min="1" max="32767"></label>
+          </div>
+        </details>
+      </section>
+
+      <section id="system-panel" class="settings-panel" role="tabpanel" aria-labelledby="system-tab" tabindex="0" hidden>
+        <h1>System</h1>
+        <div class="system-list">
+          <div class="system-row">
+            <span class="system-icon" data-icon="shield" aria-hidden="true"></span>
+            <div class="system-copy">
+              <span>Storage</span>
+              <strong id="storage-status">Preparing</strong>
+            </div>
+            <span id="runtime-location" class="system-detail">-</span>
+          </div>
+          <div class="system-row">
+            <span class="system-icon" data-icon="plug" aria-hidden="true"></span>
+            <div class="system-copy">
+              <span>Scout bridge</span>
+              <strong id="scout-bridge-status">Checking</strong>
+            </div>
+            <span id="scout-bridge-detail" class="system-detail">-</span>
+          </div>
+          <div class="system-row">
+            <span class="system-icon" data-icon="voice" aria-hidden="true"></span>
+            <div class="system-copy">
+              <span>Speech</span>
+              <strong id="activation-backend">-</strong>
+            </div>
+            <span id="post-activation-backend" class="system-detail">-</span>
+          </div>
+          <div class="system-row">
+            <span class="system-icon" data-icon="terminal" aria-hidden="true"></span>
+            <div class="system-copy">
+              <span>Runtime</span>
+              <strong id="runtime-pid">Stopped</strong>
+            </div>
+            <span class="system-detail">Local</span>
+          </div>
+        </div>
+        <div class="preference-list" aria-label="Startup">
+          <label class="preference-row">
+            <span class="preference-copy">
+              <strong>Scout bridge</strong>
+              <span>Allow enabled commands to queue work for Scout</span>
+            </span>
+            <input id="scout-queue-enabled" class="switch" type="checkbox" role="switch">
+          </label>
+          <label class="preference-row">
+            <span class="preference-copy">
+              <strong>Start with Windows</strong>
+              <span>Open Arthur after sign-in</span>
+            </span>
+            <input id="launch-at-login" class="switch" type="checkbox" role="switch">
+          </label>
+          <label class="preference-row">
+            <span class="preference-copy">
+              <strong>Start minimised</strong>
+              <span>Hide the control panel at sign-in</span>
+            </span>
+            <input id="start-minimized" class="switch" type="checkbox" role="switch">
+          </label>
+          <label class="preference-row">
+            <span class="preference-copy">
+              <strong>Start listening on launch</strong>
+              <span>Start the local voice runtime automatically</span>
+            </span>
+            <input id="start-runtime-on-launch" class="switch" type="checkbox" role="switch">
+          </label>
+          <label class="preference-row">
+            <span class="preference-copy">
+              <strong>Show floating indicator</strong>
+              <span>Keep a small floating control visible while Arthur is minimised</span>
+            </span>
+            <input id="show-floating-indicator" class="switch" type="checkbox" role="switch">
+          </label>
+          <label class="preference-row">
+            <span class="preference-copy">
+              <strong>Activation glow</strong>
+              <span>Keep the effect on the widget or include the screen edge</span>
+            </span>
+            <select id="activation-glow-mode" class="preference-select" aria-label="Activation glow">
+              <option value="widget">Widget only</option>
+              <option value="screen">Widget + screen</option>
+            </select>
+          </label>
+        </div>
+        <span id="config-path" class="visually-hidden"></span>
+        <div class="system-actions">
+          <button id="open-logs-button" class="button default-button" type="button" data-icon="folder"><span>Logs</span></button>
+          <button id="open-config-button" class="button default-button" type="button" data-icon="file"><span>Config</span></button>
+        </div>
+      </section>
+    </div>
+
+    <footer id="settings-action-bar" class="action-bar" data-dirty="false">
+      <p id="operation-message" role="status" aria-live="polite" data-tone="neutral">Preparing local runtime...</p>
+      <button id="apply-button" class="button default-button apply-action" type="button" data-icon="check" aria-label="Apply changes" data-busy-sensitive hidden><span>Apply changes</span></button>
+    </footer>
+  </main>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

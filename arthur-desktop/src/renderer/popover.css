@@ -1,0 +1,73 @@
+/*
+ * Layout for the compact tray popover. `styles.css` supplies the Clawpilot
+ * theme tokens, resets, `.icon-button`/`.button`/`.status-dot` styling; this
+ * file only adds the popover's own transparent-window shell and spacing so
+ * the popover stays visually consistent with the main panel while being
+ * substantially smaller.
+ */
+
+html,
+body {
+  background: transparent;
+}
+
+body {
+  display: flex;
+  padding: 6px;
+}
+
+.popover-shell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--cp-border);
+  border-radius: 14px;
+  background: var(--cp-bg-elevated);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  padding: 12px;
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.popover-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.popover-heading strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-detail {
+  overflow: hidden;
+  flex: 1 1 auto;
+  color: var(--cp-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.popover-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.popover-settings {
+  flex: 1 1 auto;
+  justify-content: center;
+}
