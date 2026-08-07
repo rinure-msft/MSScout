@@ -44,6 +44,7 @@ TTS_HEALTH_FILE = SCRATCH / "arthur_tts_health.json"
 CONVERSATION_STATE_FILE = SCRATCH / "arthur_conversation_state.json"
 WORKIQ = get_path("runtime.workiqPath", str(pathlib.Path.home() / ".copilot" / "bin" / "workiq.cmd"))
 EDGE_VOICE = str(get_config("voice.edgeVoice", "en-US-BrianNeural"))
+ARTHUR_DASHBOARD_URL = f"http://127.0.0.1:{int(get_config('dashboard.port', 8765))}/dashboard"
 DEFAULT_TIMEZONE = str(get_config("timezone", "Mountain Standard Time"))
 MAX_SPEECH_CHUNK_CHARS = 260
 MAX_COMPLETION_SPEECH_CHARS = 280
@@ -142,6 +143,11 @@ def pending_confirmation() -> dict[str, object] | None:
     return pending if isinstance(pending, dict) else None
 
 
+def pending_note() -> dict[str, object] | None:
+    pending = load_conversation_state().get("pending_note")
+    return pending if isinstance(pending, dict) else None
+
+
 def set_pending_clarification(command: Command, heard_text: str, confidence: float, reason: str) -> None:
     state = load_conversation_state()
     state["pending_clarification"] = {
@@ -181,6 +187,23 @@ def clear_pending_confirmation() -> None:
         save_conversation_state(state)
 
 
+def set_pending_note(parts: list[str] | None = None, stage: str = "collecting") -> None:
+    state = load_conversation_state()
+    state["pending_note"] = {
+        "parts": parts or [],
+        "stage": stage,
+        "updated_at": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+    save_conversation_state(state)
+
+
+def clear_pending_note() -> None:
+    state = load_conversation_state()
+    if "pending_note" in state:
+        state.pop("pending_note", None)
+        save_conversation_state(state)
+
+
 def normalized_yes_no(text: str) -> str | None:
     normalized = normalize_command_text(text)
     if normalized in YES_WORDS:
@@ -188,6 +211,13 @@ def normalized_yes_no(text: str) -> str | None:
     if normalized in NO_WORDS:
         return "no"
     return None
+
+
+def confirmation_instruction(command: Command, heard_text: object) -> str:
+    raw_instruction = str(heard_text or "")
+    instruction_without_wake = strip_wake_word(raw_instruction, "Arthur")
+    instruction = normalize_command_text(instruction_without_wake if instruction_without_wake is not None else raw_instruction)
+    return instruction if instruction else command.aliases[0]
 
 
 def summary_target_for(command: Command) -> str:
@@ -717,6 +747,33 @@ def take_note(note: str) -> None:
         f.write(f"[{timestamp}] {note}\n")
 
 
+def pending_note_parts(note_state: dict[str, object]) -> list[str]:
+    parts = note_state.get("parts")
+    if not isinstance(parts, list):
+        return []
+    return [str(part).strip() for part in parts if str(part).strip()]
+
+
+def append_pending_note_part(note_state: dict[str, object], text: str) -> list[str]:
+    parts = pending_note_parts(note_state)
+    segment = clean_transcript(text)
+    if segment:
+        parts.append(segment)
+    return parts
+
+
+def complete_note(note: str) -> None:
+    take_note(note)
+    recipient = configured_self_email()
+    enqueue_prompt(
+        f"Send an email addressed only to {recipient} with subject `Arthur Note - <today's date>`. "
+        "Put the note below in the email body. Do not add any other To, CC, or BCC recipients. "
+        f"Do not send if there are any recipients other than {recipient}. "
+        "After sending, respond to Arthur with exactly: Sent to your inbox.\n\n"
+        f"{note}"
+    )
+
+
 def write_daily_tasks_table(content: str) -> None:
     if SMOKE_TEST_MODE:
         record_smoke_action("write_daily_tasks_table", content[:160])
@@ -977,7 +1034,7 @@ def command_matches(text: str, alias: str) -> bool:
     alias = normalize_command_text(alias)
     if alias.endswith(" *"):
         prefix = alias[:-2].strip()
-        return text.startswith(prefix + " ")
+        return text == prefix or text.startswith(prefix + " ")
     return text == alias or re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", text) is not None
 
 
@@ -1064,6 +1121,16 @@ def h_open_browser(text: str, speaker: Speaker, command: Command) -> bool:
     return True
 
 
+def h_open_dashboard(text: str, speaker: Speaker, command: Command) -> bool:
+    try:
+        open_tracked_browser(ARTHUR_DASHBOARD_URL)
+    except OSError as exc:
+        webbrowser.open(ARTHUR_DASHBOARD_URL)
+        log(COMMAND_LOG, f"Tracked dashboard launch failed: {type(exc).__name__}: {exc}")
+    speak(speaker, "Opening the Arthur dashboard.")
+    return True
+
+
 def h_close_browser(text: str, speaker: Speaker, command: Command) -> bool:
     if not close_tracked_browser():
         speak(speaker, "I do not have a browser window to close.")
@@ -1111,11 +1178,12 @@ def h_open_folder(text: str, speaker: Speaker, command: Command) -> bool:
 
 def h_take_note(text: str, speaker: Speaker, command: Command) -> bool:
     note = extract_after_alias(text, command.aliases)
-    if not note:
-        speak(speaker, "What should I note?")
+    if note:
+        set_pending_note([clean_transcript(note)], stage="confirming")
+        speak(speaker, "Does that complete your note?")
         return True
-    take_note(note)
-    speak(speaker, "I noted that.")
+    set_pending_note(stage="collecting")
+    speak(speaker, "What should I note?")
     return True
 
 
@@ -1652,6 +1720,7 @@ HANDLERS = {
     "open_powershell": h_open_process,
     "open_notepad": h_open_process,
     "open_browser": h_open_browser,
+    "open_dashboard": h_open_dashboard,
     "close_browser": h_close_browser,
     "open_copilot": h_open_copilot,
     "web_search": h_web_search,
@@ -1833,6 +1902,7 @@ COMMANDS = [
     Command("open notepad", ("notepad", "note pad", "open notepad", "open note pad"), "open_notepad", "Open Notepad."),
     Command("close browser", ("close browser", "close edge", "close the browser", "close the browser you opened"), "close_browser", "Close the browser Arthur opened."),
     Command("open browser", ("browser", "edge", "open browser", "open edge"), "open_browser", "Open browser."),
+    Command("open dashboard", ("open dashboard", "open arthur dashboard", "arthur dashboard", "status dashboard"), "open_dashboard", "Open the Arthur dashboard at its localhost URL."),
     Command("open Copilot", ("open copilot", "copilot"), "open_copilot", "Open Copilot."),
     Command("search web", ("search for *", "search the web for *", "look up *", "bing *"), "web_search", "Search the web."),
     Command("open scratchpad", ("open scratchpad",), "open_scratchpad", "Open Scratchpad."),
@@ -1987,6 +2057,7 @@ NATURAL_INTENT_HINTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("missed_meeting_summary", "missed meeting summary", ("what meetings did i miss", "catch me up on missed meetings", "meetings i missed")),
     ("meeting_summary_recap", "meeting summary recap", ("recap my meetings", "summarize my meetings", "meetings i attended")),
     ("action_tracker", "action tracker", ("what should i work on", "what needs my attention", "prioritize my work", "build my task list")),
+    ("leadership_watch_brief", "leadership watch brief", ("what will leadership ask me about", "what should i be ready to discuss", "this week leadership asks", "executive watch brief", "fraud leadership brief")),
     ("status", "status", ("how are you running", "are you working", "are you online", "system status")),
 )
 
@@ -2139,15 +2210,60 @@ def should_ask_for_clarification(text: str, transcription: TranscriptionResult |
     return True, "; ".join(reasons)
 
 
+def handle_pending_note(text: str, speaker: Speaker) -> bool:
+    note_state = pending_note()
+    if not note_state:
+        return False
+
+    yes_no = normalized_yes_no(text)
+    stage = str(note_state.get("stage") or "collecting")
+    if stage == "confirming":
+        if yes_no == "yes":
+            parts = pending_note_parts(note_state)
+            clear_pending_note()
+            note = clean_transcript(" ".join(parts))
+            if not note:
+                speak(speaker, "I do not have anything to note yet. What should I note?")
+                set_pending_note(stage="collecting")
+                return True
+            complete_note(note)
+            speak(speaker, "I noted that and sent it to your inbox.")
+            return True
+        if yes_no == "no":
+            set_pending_note(pending_note_parts(note_state), stage="collecting")
+            speak(speaker, "Okay, continue your note.")
+            return True
+        speak(speaker, "Please say yes or no. Does that complete your note?")
+        return True
+
+    normalized = normalize_command_text(text)
+    if normalized in {"cancel", "never mind", "stop note", "cancel note"}:
+        clear_pending_note()
+        speak(speaker, "Okay, I canceled that note.")
+        return True
+
+    parts = append_pending_note_part(note_state, text)
+    if not parts:
+        speak(speaker, "What should I note?")
+        return True
+    set_pending_note(parts, stage="confirming")
+    speak(speaker, "Does that complete your note?")
+    return True
+
+
 def handle_command(text: str, speaker: Speaker, transcription: TranscriptionResult | None = None) -> bool:
     log(COMMAND_LOG, f"Command: {text}")
+    if pending_note():
+        return handle_pending_note(text, speaker)
+
     confirmation = pending_confirmation()
     yes_no = normalized_yes_no(text)
     if confirmation and yes_no == "yes":
         command = command_by_handler(str(confirmation.get("handler") or ""))
         clear_pending_confirmation()
         if command:
-            speak(speaker, f"Confirmed. I will run {command.name}.")
+            instruction = confirmation_instruction(command, confirmation.get("heard_text"))
+            speak(speaker, f"Confirmed. I will run: {instruction}.")
             return execute_command(command, str(confirmation.get("heard_text") or command.aliases[0]), speaker, confirmed=True)
     if confirmation and yes_no == "no":
         clear_pending_confirmation()
@@ -2159,8 +2275,8 @@ def handle_command(text: str, speaker: Speaker, transcription: TranscriptionResu
         command = command_by_handler(str(pending.get("handler") or ""))
         clear_pending_clarification()
         if command:
-            speak(speaker, f"Got it. I will run {command.name}.")
             heard_text = str(pending.get("heard_text") or command.aliases[0])
+            speak(speaker, f"Got it. I will run: {confirmation_instruction(command, heard_text)}.")
             return execute_command(command, heard_text, speaker)
     if pending and yes_no == "no":
         clear_pending_clarification()
@@ -2283,7 +2399,10 @@ def main() -> int:
             LAST_HEARD = text
             command = strip_wake_word(text, args.wake_word)
             now = time.time()
-            if command is None and now < PENDING_WAKE_UNTIL:
+            if command is None and pending_note():
+                command = text.strip(" ,.:;-")
+                log(COMMAND_LOG, f"Using pending note capture for: {command}")
+            elif command is None and now < PENDING_WAKE_UNTIL:
                 command = text.strip(" ,.:;-")
                 log(COMMAND_LOG, f"Using pending wake word for: {command}")
             elif command == "":

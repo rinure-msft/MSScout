@@ -18,6 +18,7 @@ CLEANUP_SCRIPT = SCRATCH / "arthur_cleanup_recordings.py"
 CHAT_CLEANUP_SCRIPT = SCRATCH / "arthur_cleanup_chats.py"
 WATCHDOG_SCRIPT = SCRATCH / "arthur_queue_watchdog.py"
 DASHBOARD_SCRIPT = SCRATCH / "arthur_status_dashboard.py"
+DASHBOARD_SERVER_SCRIPT = SCRATCH / "arthur_dashboard_server.py"
 AUTOMATION_FILE = get_path("runtime.automationFile", str(pathlib.Path.home() / ".copilot" / "m-automations" / "automations.json"))
 BROWSER_PROFILE_DIR = get_path("runtime.browserProfilePath", str(pathlib.Path(os.environ.get("LOCALAPPDATA", pathlib.Path.home() / "AppData" / "Local")) / "Arthur" / "EdgeProfile"))
 SUPERVISOR_LOG = SCRATCH / "arthur_supervisor.log"
@@ -29,6 +30,10 @@ STDOUT_LOG = SCRATCH / "arthur_voice_bridge_stdout.log"
 STDERR_LOG = SCRATCH / "arthur_voice_bridge_stderr.log"
 PROMPT_WORKER_STDOUT_LOG = SCRATCH / "arthur_prompt_worker_stdout.log"
 PROMPT_WORKER_STDERR_LOG = SCRATCH / "arthur_prompt_worker_stderr.log"
+DASHBOARD_SERVER_STDOUT_LOG = SCRATCH / "arthur_dashboard_server_stdout.log"
+DASHBOARD_SERVER_STDERR_LOG = SCRATCH / "arthur_dashboard_server_stderr.log"
+DASHBOARD_HOST = "127.0.0.1"
+DASHBOARD_PORT = int(get_config("dashboard.port", 8765))
 
 ENABLED_AUTOMATIONS: set[str] = set()
 DISABLED_AUTOMATIONS = {
@@ -90,6 +95,19 @@ def prompt_worker_process_ids() -> list[int] | None:
     result = run_powershell(command)
     if result.returncode != 0:
         log(f"Prompt worker process lookup failed: {(result.stderr or result.stdout).strip()[:300]}")
+        return None
+    return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
+
+
+def dashboard_server_process_ids() -> list[int] | None:
+    command = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.CommandLine -like '*arthur_dashboard_server.py*' -and $_.Name -match 'python' } | "
+        "ForEach-Object { $_.ProcessId }"
+    )
+    result = run_powershell(command)
+    if result.returncode != 0:
+        log(f"Dashboard server process lookup failed: {(result.stderr or result.stdout).strip()[:300]}")
         return None
     return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
 
@@ -214,6 +232,32 @@ def ensure_prompt_worker(stale_seconds: int) -> None:
         log(f"Prompt worker heartbeat stale for {age:.0f}s; restarting worker.")
         stop_processes(processes)
         start_prompt_worker()
+
+
+def start_dashboard_server() -> None:
+    if not DASHBOARD_SERVER_SCRIPT.exists():
+        raise FileNotFoundError(f"Arthur dashboard server script not found: {DASHBOARD_SERVER_SCRIPT}")
+    stdout = DASHBOARD_SERVER_STDOUT_LOG.open("a", encoding="utf-8")
+    stderr = DASHBOARD_SERVER_STDERR_LOG.open("a", encoding="utf-8")
+    subprocess.Popen(
+        [sys.executable, str(DASHBOARD_SERVER_SCRIPT), "--host", DASHBOARD_HOST, "--port", str(DASHBOARD_PORT)],
+        cwd=str(SCRATCH),
+        stdout=stdout,
+        stderr=stderr,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    log(f"Started Arthur dashboard server at http://{DASHBOARD_HOST}:{DASHBOARD_PORT}/dashboard.")
+
+
+def ensure_dashboard_server() -> None:
+    processes = dashboard_server_process_ids()
+    if processes is None:
+        return
+    if len(processes) > 1:
+        stop_processes(processes[1:])
+        log(f"Stopped duplicate Arthur dashboard server processes: {processes[1:]}")
+    if not processes:
+        start_dashboard_server()
 
 
 def ensure_automation_ownership() -> None:
@@ -407,6 +451,7 @@ def main() -> int:
             ensure_automation_ownership()
             ensure_bridge(args.mic_device, args.tts, args.stale_heartbeat_seconds, args.threshold, args.greeting_scenario)
             ensure_prompt_worker(args.stale_worker_heartbeat_seconds)
+            ensure_dashboard_server()
             if time.monotonic() - last_watchdog > 2 * 60:
                 run_queue_watchdog()
                 last_watchdog = time.monotonic()

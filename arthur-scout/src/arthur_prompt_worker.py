@@ -43,7 +43,8 @@ def iso_timestamp() -> str:
 
 def log(message: str) -> None:
     line = f"[{now().strftime('%Y-%m-%d %H:%M:%S')}] {message}"
-    print(line, flush=True)
+    console_encoding = sys.stdout.encoding or "utf-8"
+    print(line.encode(console_encoding, errors="backslashreplace").decode(console_encoding), flush=True)
     with WORKER_LOG.open("a", encoding="utf-8") as handle:
         handle.write(line + "\n")
 
@@ -295,12 +296,6 @@ def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None)
     if "cleanup" in lowered and "arthur" in lowered:
         return run_local_command([sys.executable, str(SCRATCH / "arthur_cleanup_chats.py"), "--max-age-hours", "4"], timeout=180)
 
-    if any(term in lowered for term in ("action tracker", "azure devops", "ado work item", "work item")):
-        return handle_action_tracker_handoff(prompt_id, prompt)
-
-    if any(term in lowered for term in ("playwright", "browser automation", "coreidentity", "review all entitlements", "pending access approvals", "approve entitlement")):
-        return handle_scout_task_handoff(prompt_id, prompt, "browser_or_approval")
-
     if "daily briefing" in lowered and "send" in lowered and "email" in lowered and has_only_self_email(prompt):
         return handle_daily_briefing_split(prompt_id, prompt)
 
@@ -308,6 +303,12 @@ def classify_and_execute(prompt_id: str, prompt: str, spoken_prompt: str | None)
         if not has_only_self_email(prompt):
             return HandlerResult("blocked", "Needs Scout/manual escalation: outbound email recipient is not the configured self-email.", "Outbound email recipient is not self-only.")
         return handle_self_email_prompt_handoff(prompt_id, prompt)
+
+    if any(term in lowered for term in ("action tracker", "azure devops", "ado work item", "work item")):
+        return handle_action_tracker_handoff(prompt_id, prompt)
+
+    if any(term in lowered for term in ("playwright", "browser automation", "coreidentity", "review all entitlements", "pending access approvals", "approve entitlement")):
+        return handle_scout_task_handoff(prompt_id, prompt, "browser_or_approval")
 
     if any(term in lowered for term in ("email", "teams", "calendar", "meeting", "brief", "summary", "inbox", "workiq")):
         return run_workiq(prompt)

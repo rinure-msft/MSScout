@@ -302,7 +302,7 @@ def claim_next(runner_id: str | None) -> int:
                     "message": "No runnable prompt found.",
                     "invalid_lines": len(invalid_lines),
                 },
-                ensure_ascii=False,
+                ensure_ascii=True,
             )
         )
         return 0
@@ -318,7 +318,7 @@ def claim_next(runner_id: str | None) -> int:
                 "prompt": selected.get("prompt"),
                 "spoken_prompt": selected.get("spoken_prompt"),
             },
-            ensure_ascii=False,
+            ensure_ascii=True,
         )
     )
     return 0
