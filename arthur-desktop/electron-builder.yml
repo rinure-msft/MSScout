@@ -1,0 +1,40 @@
+appId: com.microsoft.scout.arthur
+productName: Arthur
+executableName: Arthur
+asar: true
+compression: maximum
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/tests/**"
+extraResources:
+  - from: runtime-dist/arthur-runtime
+    to: runtime
+    filter:
+      - "**/*"
+win:
+  icon: build/icon.svg
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: Arthur-Setup-${version}-${arch}.${ext}
+  verifyUpdateCodeSignature: true
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Arthur
+publish:
+  provider: github
+  owner: rinure-msft
+  repo: MSScout
+electronDownload:
+  cache: .electron-cache

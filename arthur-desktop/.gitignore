@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+runtime-dist/
+.runtime-venv/
+.electron-cache/
+*.log
+*.map
+coverage/
